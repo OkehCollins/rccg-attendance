@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>RCCG Champions Cathedral — Media Team</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="css/style.css"/>
+</head>
+<body class="auth-page">
+  <div class="auth-bg">
+    <div class="auth-overlay"></div>
+    <div class="cross-pattern"></div>
+  </div>
+  <div class="auth-container">
+    <div class="auth-card">
+      <div class="brand">
+        <div class="brand-icon">✦</div>
+        <h1 class="brand-name">Champions Cathedral</h1>
+        <p class="brand-sub">Media Team Portal</p>
+      </div>
+      <div id="loginForm">
+        <h2 class="form-title">Welcome Back</h2>
+        <p class="form-sub">Sign in to your team account</p>
+        <div class="form-group">
+          <label>Email Address</label>
+          <input type="email" id="loginEmail" placeholder="you@example.com"/>
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" id="loginPassword" placeholder="••••••••"/>
+        </div>
+        <div id="loginError" class="error-msg hidden"></div>
+        <button class="btn-primary" onclick="handleLogin()"><span>Sign In</span><span class="btn-icon">→</span></button>
+        <p class="form-switch">New to the team? <a href="#" onclick="toggleForms('register')">Request Access</a></p>
+      </div>
+      <div id="registerForm" class="hidden">
+        <h2 class="form-title">Join the Team</h2>
+        <p class="form-sub">Create your media team account</p>
+        <div class="form-group">
+          <label>Full Name</label>
+          <input type="text" id="regName" placeholder="e.g. Chukwuemeka Obi"/>
+        </div>
+        <div class="form-group">
+          <label>Email Address</label>
+          <input type="email" id="regEmail" placeholder="you@example.com"/>
+        </div>
+        <div class="form-group">
+          <label>Phone Number</label>
+          <input type="tel" id="regPhone" placeholder="+234 800 000 0000"/>
+        </div>
+        <div class="form-group">
+          <label>Role on Media Team</label>
+          <select id="regRole">
+            <option value="">Select your role</option>
+            <option>Camera Operator</option>
+            <option>Sound Engineer</option>
+            <option>Live Stream Operator</option>
+            <option>Graphics & Display</option>
+            <option>Photography</option>
+            <option>Video Editor</option>
+            <option>Social Media</option>
+            <option>Media Director</option>
+            <option>Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" id="regPassword" placeholder="Min. 6 characters"/>
+        </div>
+        <div id="registerError" class="error-msg hidden"></div>
+        <div id="registerSuccess" class="success-msg hidden"></div>
+        <button class="btn-primary" onclick="handleRegister()"><span>Create Account</span><span class="btn-icon">→</span></button>
+        <p class="form-switch">Already have an account? <a href="#" onclick="toggleForms('login')">Sign In</a></p>
+      </div>
+    </div>
+    <p class="auth-footer">RCCG Champions Cathedral · Port Harcourt</p>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged }
+      from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+    import { getFirestore, doc, setDoc, getDoc }
+      from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+    // ============================================================
+    // PASTE YOUR FIREBASE CONFIG HERE
+    // ============================================================
+    const firebaseConfig = {
+      apiKey: "AIzaSyCuWRS2ZM5fHMYKzM141OgJ7CARj3Z9H9I",
+    authDomain: "rccg-champions-media.firebaseapp.com",
+    projectId: "rccg-champions-media",
+    storageBucket: "rccg-champions-media.firebasestorage.app",
+    messagingSenderId: "457166432992",
+    appId: "1:457166432992:web:f065ea066a5fca0fa9fe85"
+    };
+    // ============================================================
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        const snap = await getDoc(doc(db, "users", user.uid));
+        if (snap.exists()) {
+          window.location.href = snap.data().role === "admin" ? "pages/admin.html" : "pages/member.html";
+        }
+      }
+    });
+
+    window.handleLogin = async () => {
+      const email = document.getElementById("loginEmail").value.trim();
+      const password = document.getElementById("loginPassword").value;
+      const errEl = document.getElementById("loginError");
+      errEl.classList.add("hidden");
+      try {
+        const btn = document.querySelector("#loginForm .btn-primary");
+        btn.innerHTML = '<span>Signing in...</span>'; btn.disabled = true;
+        await signInWithEmailAndPassword(auth, email, password);
+      } catch(e) {
+        document.querySelector("#loginForm .btn-primary").innerHTML = '<span>Sign In</span><span class="btn-icon">→</span>';
+        document.querySelector("#loginForm .btn-primary").disabled = false;
+        errEl.textContent = "Invalid email or password. Try again.";
+        errEl.classList.remove("hidden");
+      }
+    };
+
+    window.handleRegister = async () => {
+      const name = document.getElementById("regName").value.trim();
+      const email = document.getElementById("regEmail").value.trim();
+      const phone = document.getElementById("regPhone").value.trim();
+      const mediaRole = document.getElementById("regRole").value;
+      const password = document.getElementById("regPassword").value;
+      const errEl = document.getElementById("registerError");
+      const succEl = document.getElementById("registerSuccess");
+      errEl.classList.add("hidden"); succEl.classList.add("hidden");
+      if (!name || !email || !phone || !mediaRole || !password) { errEl.textContent = "Please fill in all fields."; errEl.classList.remove("hidden"); return; }
+      if (password.length < 6) { errEl.textContent = "Password must be at least 6 characters."; errEl.classList.remove("hidden"); return; }
+      try {
+        const btn = document.querySelector("#registerForm .btn-primary");
+        btn.innerHTML = '<span>Creating account...</span>'; btn.disabled = true;
+        const cred = await createUserWithEmailAndPassword(auth, email, password);
+        await setDoc(doc(db, "users", cred.user.uid), {
+          uid: cred.user.uid, name, email, phone, mediaRole,
+          role: "member", points: 0, streak: 0, totalAttended: 0, totalMissed: 0,
+          joinedAt: new Date().toISOString(), status: "active"
+        });
+        succEl.textContent = "Account created! Signing you in...";
+        succEl.classList.remove("hidden");
+      } catch(e) {
+        document.querySelector("#registerForm .btn-primary").innerHTML = '<span>Create Account</span><span class="btn-icon">→</span>';
+        document.querySelector("#registerForm .btn-primary").disabled = false;
+        errEl.textContent = e.message.includes("email-already-in-use") ? "This email is already registered." : "Something went wrong. Try again.";
+        errEl.classList.remove("hidden");
+      }
+    };
+
+    window.toggleForms = (form) => {
+      document.getElementById("loginForm").classList.toggle("hidden", form !== "login");
+      document.getElementById("registerForm").classList.toggle("hidden", form !== "register");
+    };
+  </script>
+</body>
+</html>

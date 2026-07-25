@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Admin Dashboard — Champions Cathedral Media Team</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="../css/style.css"/>
+</head>
+<body class="dashboard-body">
+  <nav class="navbar">
+    <div class="nav-brand">
+      <span class="nav-brand-icon">✦</span>
+      <div><div class="nav-brand-name">Champions Cathedral</div><div class="nav-brand-sub">Admin Dashboard</div></div>
+    </div>
+    <div class="nav-right">
+      <div class="nav-user">
+        <div class="nav-avatar" id="navAvatar">A</div>
+        <div><div class="nav-user-name" id="navName">Admin</div><div class="nav-user-role"><span class="badge badge-admin">Admin</span></div></div>
+      </div>
+      <button class="btn-logout" onclick="handleLogout()">Sign Out</button>
+    </div>
+  </nav>
+
+  <main class="main-content">
+    <div class="page-header">
+      <h1>Admin Dashboard</h1>
+      <p>Manage meetings, review attendance, and take care of your team.</p>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('overview')">Overview</button>
+      <button class="tab" onclick="switchTab('meetings')">Meetings</button>
+      <button class="tab" onclick="switchTab('members')">Members</button>
+      <button class="tab" onclick="switchTab('excuses')">Excuses <span id="excuseBadge"></span></button>
+      <button class="tab" onclick="switchTab('leaderboard')">Leaderboard</button>
+    </div>
+
+    <!-- OVERVIEW -->
+    <div id="tab-overview">
+      <div class="stats-row">
+        <div class="stat-card"><div class="stat-label">Total Members</div><div class="stat-value" id="oTotalMembers">—</div><div class="stat-badge">Active accounts</div></div>
+        <div class="stat-card"><div class="stat-label">Present Today</div><div class="stat-value green" id="oPresentToday">—</div><div class="stat-badge">Clocked in</div></div>
+        <div class="stat-card"><div class="stat-label">Flagged Members</div><div class="stat-value red" id="oFlagged">—</div><div class="stat-badge">2+ missed meetings</div></div>
+        <div class="stat-card"><div class="stat-label">Pending Excuses</div><div class="stat-value gold" id="oPending">—</div><div class="stat-badge">Awaiting review</div></div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div><div class="card-title">Active Meeting</div><div class="card-title-sub">Live attendance right now</div></div>
+          <button class="btn-primary" style="width:auto;padding:9px 18px;font-size:13px;" onclick="switchTab('meetings')">Manage Meetings</button>
+        </div>
+        <div id="overviewActiveMeeting"><div class="empty-state"><div class="empty-icon">📅</div><p>No active meeting.</p></div></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div><div class="card-title">⚠️ Flagged Members</div><div class="card-title-sub">Members with 2 or more unexcused absences</div></div></div>
+        <div id="flaggedList"><div class="empty-state"><div class="empty-icon">✅</div><p>No flagged members. Everyone's showing up!</p></div></div>
+      </div>
+    </div>
+
+    <!-- MEETINGS -->
+    <div id="tab-meetings" class="hidden">
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header"><div><div class="card-title">Schedule a Meeting</div></div></div>
+          <div class="meeting-form">
+            <div class="full"><label>Meeting Title</label><input type="text" id="mTitle" placeholder="e.g. Sunday Service Media Rehearsal"/></div>
+            <div><label>Date</label><input type="date" id="mDate"/></div>
+            <div><label>Start Time</label><input type="time" id="mTime"/></div>
+            <div><label>Venue Name</label><input type="text" id="mVenue" placeholder="e.g. Sanctuary"/></div>
+            <div><label>Late Threshold (mins)</label><input type="number" id="mLate" value="15" min="1"/></div>
+            <div class="full"><label>Venue Latitude</label><input type="number" id="mLat" placeholder="e.g. 4.8242" step="0.0001"/></div>
+            <div class="full"><label>Venue Longitude</label><input type="number" id="mLng" placeholder="e.g. 7.0336" step="0.0001"/></div>
+            <div class="full"><label>Location Radius (metres)</label><input type="number" id="mRadius" value="150" min="30"/></div>
+            <div class="full"><label>Notes (optional)</label><textarea id="mNotes" rows="2" placeholder="Any extra info..."></textarea></div>
+            <div class="full" style="display:flex;gap:10px;">
+              <button class="btn-primary" onclick="createMeeting()" style="flex:1;"><span>Schedule Meeting</span></button>
+              <button class="btn-primary" onclick="getMyLocation()" style="flex:0 0 auto;padding:14px 18px;font-size:13px;">📍 My Location</button>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><div><div class="card-title">All Meetings</div></div></div>
+          <div id="meetingsList"><div class="empty-state"><div class="empty-icon">📅</div><p>No meetings yet.</p></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MEMBERS -->
+    <div id="tab-members" class="hidden">
+      <div class="card">
+        <div class="card-header">
+          <div><div class="card-title">All Members</div><div class="card-title-sub" id="membersSubtitle">Loading...</div></div>
+          <input type="text" id="memberSearch" placeholder="Search by name..." oninput="filterMembers()" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:8px 14px;color:var(--white);font-family:Inter,sans-serif;font-size:13px;outline:none;width:200px;"/>
+        </div>
+        <div class="members-grid" id="membersGrid"><div class="empty-state"><div class="empty-icon">👥</div><p>Loading members...</p></div></div>
+      </div>
+    </div>
+
+    <!-- EXCUSES -->
+    <div id="tab-excuses" class="hidden">
+      <div class="card">
+        <div class="card-header"><div><div class="card-title">Excuse Requests</div><div class="card-title-sub">Review and approve or decline</div></div></div>
+        <div id="excusesList"><div class="empty-state"><div class="empty-icon">📝</div><p>No excuse requests.</p></div></div>
+      </div>
+    </div>
+
+    <!-- LEADERBOARD -->
+    <div id="tab-leaderboard" class="hidden">
+      <div class="card">
+        <div class="card-header"><div><div class="card-title">Team Leaderboard</div><div class="card-title-sub">Ranked by consistency points</div></div></div>
+        <ul class="leaderboard-list" id="leaderboardList"><div class="empty-state"><div class="empty-icon">🏆</div><p>Loading...</p></div></ul>
+      </div>
+    </div>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+    import { getFirestore, doc, getDoc, getDocs, collection, query, where, orderBy, addDoc, updateDoc, deleteDoc, Timestamp, serverTimestamp }
+      from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+    // ============================================================
+    // PASTE YOUR FIREBASE CONFIG HERE
+    // ============================================================
+    const firebaseConfig = {
+      apiKey: "AIzaSyCuWRS2ZM5fHMYKzM141OgJ7CARj3Z9H9I",
+    authDomain: "rccg-champions-media.firebaseapp.com",
+    projectId: "rccg-champions-media",
+    storageBucket: "rccg-champions-media.firebasestorage.app",
+    messagingSenderId: "457166432992",
+    appId: "1:457166432992:web:f065ea066a5fca0fa9fe85"
+    };
+    // ============================================================
+
+    const app=initializeApp(firebaseConfig), auth=getAuth(app), db=getFirestore(app);
+    let allMembers=[];
+
+    const showToast=(msg,type="success")=>{const t=document.getElementById("toast");t.textContent=msg;t.className=`toast show ${type}`;setTimeout(()=>t.className="toast",3500);};
+
+    window.switchTab=(tab)=>{
+      document.querySelectorAll(".tab").forEach((t,i)=>{const tabs=["overview","meetings","members","excuses","leaderboard"];t.classList.toggle("active",tabs[i]===tab);});
+      ["overview","meetings","members","excuses","leaderboard"].forEach(id=>{document.getElementById(`tab-${id}`).classList.toggle("hidden",id!==tab);});
+      if(tab==="members")loadMembers();
+      if(tab==="excuses")loadExcuses();
+      if(tab==="leaderboard")loadLeaderboard();
+      if(tab==="meetings")loadMeetings();
+    };
+
+    async function loadOverview(){
+      const mSnap=await getDocs(query(collection(db,"users"),where("role","==","member")));
+      document.getElementById("oTotalMembers").textContent=mSnap.size;
+      const flagged=mSnap.docs.filter(d=>(d.data().totalMissed||0)>=2);
+      document.getElementById("oFlagged").textContent=flagged.length;
+      const eSnap=await getDocs(query(collection(db,"excuses"),where("status","==","pending")));
+      document.getElementById("oPending").textContent=eSnap.size;
+      if(eSnap.size>0)document.getElementById("excuseBadge").innerHTML=`<span style="background:var(--gold);color:var(--navy);border-radius:10px;padding:1px 6px;font-size:10px;font-weight:700;margin-left:4px;">${eSnap.size}</span>`;
+      const aSnap=await getDocs(query(collection(db,"meetings"),where("status","==","active")));
+      const ovEl=document.getElementById("overviewActiveMeeting");
+      if(!aSnap.empty){
+        const m=aSnap.docs[0].data(),mid=aSnap.docs[0].id;
+        const attSnap=await getDocs(query(collection(db,"attendance"),where("meetingId","==",mid)));
+        document.getElementById("oPresentToday").textContent=attSnap.size;
+        let liveHtml=`<table class="attendance-table"><thead><tr><th>Name</th><th>In</th><th>Out</th><th>Status</th></tr></thead><tbody>`;
+        attSnap.forEach(d=>{const a=d.data();const inT=a.clockInTime?new Date(a.clockInTime.toDate()).toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"}):"—";const outT=a.clockOutTime?new Date(a.clockOutTime.toDate()).toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"}):"Still In";liveHtml+=`<tr><td><strong>${a.userName}</strong></td><td>${inT}</td><td>${outT}</td><td><span class="badge ${a.late?"badge-late":"badge-present"}">${a.late?"Late":"On Time"}</span></td></tr>`;});
+        liveHtml+=`</tbody></table>`;
+        ovEl.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;"><div><div style="font-family:'Cinzel',serif;font-size:18px;font-weight:700;">${m.title}</div><div style="font-size:13px;color:var(--white-dim);margin-top:4px;">${m.venue} · ${attSnap.size} present</div></div><button class="btn-decline" onclick="endMeeting('${mid}')">End Meeting</button></div>${liveHtml}`;
+      } else {
+        document.getElementById("oPresentToday").textContent="—";
+        ovEl.innerHTML=`<div class="empty-state"><div class="empty-icon">📅</div><p>No active meeting right now.</p></div>`;
+      }
+      const flaggedEl=document.getElementById("flaggedList");
+      if(!flagged.length){flaggedEl.innerHTML=`<div class="empty-state"><div class="empty-icon">✅</div><p>No flagged members. Everyone's showing up!</p></div>`;}
+      else{flaggedEl.innerHTML=`<table class="attendance-table"><thead><tr><th>Name</th><th>Role</th><th>Missed</th><th>Email</th></tr></thead><tbody>`+flagged.map(d=>{const u=d.data();return`<tr><td><strong>${u.name}</strong></td><td>${u.mediaRole||"—"}</td><td><span class="badge badge-flagged">${u.totalMissed} missed</span></td><td style="font-size:12px;color:var(--white-dim);">${u.email}</td></tr>`;}).join("")+`</tbody></table>`;}
+    }
+
+    window.loadMeetings=async()=>{
+      const snap=await getDocs(query(collection(db,"meetings"),orderBy("scheduledAt","desc")));
+      const el=document.getElementById("meetingsList");
+      if(snap.empty){el.innerHTML=`<div class="empty-state"><div class="empty-icon">📅</div><p>No meetings yet.</p></div>`;return;}
+      el.innerHTML=snap.docs.map(d=>{const m=d.data();const dt=m.scheduledAt?new Date(m.scheduledAt.toDate()).toLocaleString("en-NG",{weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}):"—";const sc=m.status==="active"?"badge-present":m.status==="ended"?"badge-absent":"badge-pending";return`<div style="padding:14px 0;border-bottom:1px solid rgba(255,255,255,0.05);"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;"><div><div style="font-weight:600;font-size:14px;">${m.title}</div><div style="font-size:12px;color:var(--white-dim);margin-top:2px;">${dt} · ${m.venue||"—"}</div></div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span class="badge ${sc}">${m.status}</span>${m.status==="upcoming"?`<button class="btn-approve" onclick="activateMeeting('${d.id}')">Start</button>`:""} ${m.status==="active"?`<button class="btn-decline" onclick="endMeeting('${d.id}')">End</button>`:""} ${m.status!=="active"?`<button class="btn-decline" style="padding:5px 10px;font-size:11px;" onclick="deleteMeeting('${d.id}')">Delete</button>`:""}</div></div></div>`;}).join("");
+    };
+
+    window.createMeeting=async()=>{
+      const title=document.getElementById("mTitle").value.trim(),date=document.getElementById("mDate").value,time=document.getElementById("mTime").value,venue=document.getElementById("mVenue").value.trim(),lat=parseFloat(document.getElementById("mLat").value),lng=parseFloat(document.getElementById("mLng").value),radius=parseInt(document.getElementById("mRadius").value)||150,lateMin=parseInt(document.getElementById("mLate").value)||15,notes=document.getElementById("mNotes").value.trim();
+      if(!title||!date||!time||!venue||isNaN(lat)||isNaN(lng)){showToast("Fill all fields including GPS coordinates.","error");return;}
+      await addDoc(collection(db,"meetings"),{title,venue,lat,lng,radiusMeters:radius,lateThresholdMinutes:lateMin,notes,scheduledAt:Timestamp.fromDate(new Date(`${date}T${time}`)),status:"upcoming",createdAt:serverTimestamp()});
+      ["mTitle","mDate","mTime","mVenue","mLat","mLng","mNotes"].forEach(id=>document.getElementById(id).value="");
+      document.getElementById("mRadius").value="150";
+      showToast("Meeting scheduled! ✅"); loadMeetings();
+    };
+
+    window.activateMeeting=async(id)=>{
+      const aSnap=await getDocs(query(collection(db,"meetings"),where("status","==","active")));
+      for(const d of aSnap.docs)await updateDoc(doc(db,"meetings",d.id),{status:"ended"});
+      await updateDoc(doc(db,"meetings",id),{status:"active",startedAt:serverTimestamp()});
+      showToast("Meeting is now live! Members can clock in. 🟢"); loadMeetings();
+    };
+
+    window.endMeeting=async(id)=>{
+      await updateDoc(doc(db,"meetings",id),{status:"ended",endedAt:serverTimestamp()});
+      const mSnap=await getDocs(query(collection(db,"users"),where("role","==","member")));
+      const attSnap=await getDocs(query(collection(db,"attendance"),where("meetingId","==",id)));
+      const attendedIds=new Set(attSnap.docs.map(d=>d.data().userId));
+      for(const m of mSnap.docs){const uid=m.id,udata=m.data();if(!attendedIds.has(uid)){const exSnap=await getDocs(query(collection(db,"excuses"),where("userId","==",uid),where("meetingId","==",id),where("status","==","approved")));if(exSnap.empty)await updateDoc(doc(db,"users",uid),{totalMissed:(udata.totalMissed||0)+1,streak:0});}}
+      showToast("Meeting ended. Absences recorded."); loadMeetings(); loadOverview();
+    };
+
+    window.deleteMeeting=async(id)=>{if(!confirm("Delete this meeting?"))return;await deleteDoc(doc(db,"meetings",id));showToast("Meeting deleted.");loadMeetings();};
+    window.getMyLocation=()=>{if(!navigator.geolocation){showToast("Geolocation not supported.","error");return;}navigator.geolocation.getCurrentPosition(p=>{document.getElementById("mLat").value=p.coords.latitude.toFixed(6);document.getElementById("mLng").value=p.coords.longitude.toFixed(6);showToast("Location captured! ✅");},()=>showToast("Could not get location.","error"),{enableHighAccuracy:true});};
+
+    window.loadMembers=async()=>{
+      const snap=await getDocs(query(collection(db,"users"),where("role","==","member"),orderBy("name")));
+      allMembers=snap.docs.map(d=>({id:d.id,...d.data()}));
+      renderMembersGrid(allMembers);
+      document.getElementById("membersSubtitle").textContent=`${allMembers.length} member${allMembers.length!==1?"s":""} total`;
+    };
+
+    function renderMembersGrid(members){
+      const grid=document.getElementById("membersGrid");
+      if(!members.length){grid.innerHTML=`<div class="empty-state"><div class="empty-icon">👥</div><p>No members yet.</p></div>`;return;}
+      grid.innerHTML=members.map(u=>{const initials=u.name.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase();const flagged=(u.totalMissed||0)>=2;const rate=u.totalAttended+u.totalMissed>0?Math.round((u.totalAttended/(u.totalAttended+u.totalMissed))*100):100;return`<div class="member-card ${flagged?"flagged-card":""}"><div class="member-card-top"><div class="member-card-avatar">${initials}</div><div><div class="member-card-name">${u.name} ${flagged?"⚠️":""}</div><div class="member-card-role">${u.mediaRole||"Member"}</div></div></div><div class="member-card-stats"><div class="member-stat"><div class="member-stat-label">Attended</div><div class="member-stat-value" style="color:var(--green-light);">${u.totalAttended||0}</div></div><div class="member-stat"><div class="member-stat-label">Missed</div><div class="member-stat-value" style="color:${flagged?"#E74C3C":"var(--white)"};">${u.totalMissed||0}</div></div><div class="member-stat"><div class="member-stat-label">Points</div><div class="member-stat-value" style="color:var(--gold);">${u.points||0}</div></div><div class="member-stat"><div class="member-stat-label">Rate</div><div class="member-stat-value">${rate}%</div></div></div></div>`;}).join("");
+    }
+
+    window.filterMembers=()=>{const q=document.getElementById("memberSearch").value.toLowerCase();renderMembersGrid(allMembers.filter(m=>m.name.toLowerCase().includes(q)));};
+
+    window.loadExcuses=async()=>{
+      const snap=await getDocs(query(collection(db,"excuses"),orderBy("submittedAt","desc")));
+      const el=document.getElementById("excusesList");
+      if(snap.empty){el.innerHTML=`<div class="empty-state"><div class="empty-icon">📝</div><p>No excuse requests.</p></div>`;return;}
+      el.innerHTML=snap.docs.map(d=>{const e=d.data();const initials=e.userName?e.userName.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase():"?";const date=e.submittedAt?new Date(e.submittedAt.toDate()).toLocaleDateString("en-NG",{day:"numeric",month:"short",year:"numeric"}):"—";const sc=e.status==="pending"?"badge-pending":e.status==="approved"?"badge-present":"badge-absent";return`<div class="excuse-request"><div class="excuse-req-avatar">${initials}</div><div class="excuse-req-body"><div class="excuse-req-name">${e.userName}</div><div class="excuse-req-meeting">${e.meetingTitle} · Submitted ${date}</div><div class="excuse-req-reason">${e.reason}</div><div style="margin-top:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;"><span class="badge ${sc}">${e.status}</span>${e.status==="pending"?`<div class="excuse-req-actions"><button class="btn-approve" onclick="reviewExcuse('${d.id}','${e.userId}','approved')">Approve</button><button class="btn-decline" onclick="reviewExcuse('${d.id}','${e.userId}','declined')">Decline</button></div>`:""}</div></div></div>`;}).join("");
+    };
+
+    window.reviewExcuse=async(excuseId,userId,decision)=>{await updateDoc(doc(db,"excuses",excuseId),{status:decision,reviewedAt:serverTimestamp()});showToast(`Excuse ${decision}. `+(decision==="approved"?"Won't count as missed.":"Will count as absent."));loadExcuses();loadOverview();};
+
+    window.loadLeaderboard=async()=>{
+      const snap=await getDocs(query(collection(db,"users"),where("role","==","member"),orderBy("points","desc")));
+      const el=document.getElementById("leaderboardList");
+      if(snap.empty){el.innerHTML=`<div class="empty-state"><div class="empty-icon">🏆</div><p>No data yet.</p></div>`;return;}
+      const rC=["gold-rank","silver-rank","bronze-rank"],rI=["🥇","🥈","🥉"];
+      el.innerHTML=snap.docs.map((d,i)=>{const u=d.data();const initials=u.name.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase();return`<li class="leaderboard-item"><div class="lb-rank ${rC[i]||""}">${i<3?rI[i]:`${i+1}`}</div><div class="lb-avatar">${initials}</div><div style="flex:1;"><div class="lb-name">${u.name}</div><div class="lb-role">${u.mediaRole||"Member"} · Streak: ${u.streak||0} 🔥</div></div><div class="lb-points">${u.points||0} pts</div></li>`;}).join("");
+    };
+
+    window.handleLogout=async()=>{await signOut(auth);window.location.href="../index.html";};
+
+    onAuthStateChanged(auth,async(user)=>{
+      if(!user){window.location.href="../index.html";return;}
+      const snap=await getDoc(doc(db,"users",user.uid));
+      if(!snap.exists()||snap.data().role!=="admin"){window.location.href="member.html";return;}
+      const u=snap.data();const initials=u.name.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase();
+      document.getElementById("navAvatar").textContent=initials;
+      document.getElementById("navName").textContent=u.name;
+      await loadOverview();
+    });
+  </script>
+</body>
+</html>

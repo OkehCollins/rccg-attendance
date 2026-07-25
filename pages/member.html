@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>My Dashboard — Champions Cathedral Media Team</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="../css/style.css"/>
+</head>
+<body class="dashboard-body">
+  <nav class="navbar">
+    <div class="nav-brand">
+      <span class="nav-brand-icon">✦</span>
+      <div><div class="nav-brand-name">Champions Cathedral</div><div class="nav-brand-sub">Media Team Portal</div></div>
+    </div>
+    <div class="nav-right">
+      <div class="nav-user">
+        <div class="nav-avatar" id="navAvatar">?</div>
+        <div><div class="nav-user-name" id="navName">Loading...</div><div class="nav-user-role" id="navRole">Member</div></div>
+      </div>
+      <button class="btn-logout" onclick="handleLogout()">Sign Out</button>
+    </div>
+  </nav>
+
+  <main class="main-content">
+    <div class="page-header">
+      <h1 id="welcomeMsg">Welcome back</h1>
+      <p>Here's your attendance overview for this season.</p>
+    </div>
+
+    <div class="stats-row">
+      <div class="stat-card"><div class="stat-label">Meetings Attended</div><div class="stat-value green" id="statAttended">0</div><div class="stat-badge">Total this season</div></div>
+      <div class="stat-card"><div class="stat-label">Missed</div><div class="stat-value red" id="statMissed">0</div><div class="stat-badge">Unexcused absences</div></div>
+      <div class="stat-card"><div class="stat-label">Points</div><div class="stat-value gold" id="statPoints">0</div><div class="stat-badge">Consistency score</div></div>
+      <div class="stat-card"><div class="stat-label">Current Streak</div><div class="stat-value gold" id="statStreak">0</div><div class="stat-badge">Meetings in a row</div></div>
+    </div>
+
+    <div class="card">
+      <div class="no-meeting-msg" id="noMeetingMsg">
+        <div class="no-meeting-icon">📅</div>
+        <p>No active meeting right now. Check back when a meeting is scheduled.</p>
+      </div>
+      <div id="activeMeetingSection" class="hidden">
+        <div class="meeting-status-card">
+          <div class="meeting-live-badge"><span class="live-dot"></span> Live Meeting</div>
+          <div class="meeting-name" id="activeMeetingName">—</div>
+          <div class="meeting-meta" id="activeMeetingMeta">—</div>
+          <button class="btn-clockin" id="clockInBtn" onclick="handleClockIn()">
+            <span>⏱</span> <span id="clockBtnText">Clock In</span>
+          </button>
+          <p style="font-size:12px;color:var(--white-dim);margin-top:12px;" id="clockStatus"></p>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-header">
+          <div><div class="card-title">Attendance History</div><div class="card-title-sub">Your recent meeting records</div></div>
+        </div>
+        <div id="historyList"><div class="empty-state"><div class="empty-icon">📋</div><p>No records yet.</p></div></div>
+      </div>
+      <div>
+        <div class="card" style="margin-bottom:20px;">
+          <div class="card-header">
+            <div><div class="card-title">Submit an Excuse</div><div class="card-title-sub">Can't make it? Let the admin know</div></div>
+          </div>
+          <div class="excuse-form">
+            <div>
+              <label style="font-size:12px;color:var(--white-dim);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;display:block;">Meeting</label>
+              <select id="excuseMeetingSelect"><option value="">Select upcoming meeting</option></select>
+            </div>
+            <div>
+              <label style="font-size:12px;color:var(--white-dim);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;display:block;">Reason</label>
+              <textarea id="excuseReason" rows="3" placeholder="Explain why you won't be able to attend..."></textarea>
+            </div>
+            <button class="btn-primary" onclick="submitExcuse()" style="width:auto;padding:11px 24px;"><span>Submit Request</span></button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div><div class="card-title">Your Badges</div><div class="card-title-sub">Earned through consistency</div></div>
+          </div>
+          <div id="badgesContainer" style="display:flex;flex-wrap:wrap;gap:10px;">
+            <div class="empty-state"><div class="empty-icon">🏅</div><p>Attend meetings to earn badges.</p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+    import { getFirestore, doc, getDoc, getDocs, collection, query, where, orderBy, addDoc, updateDoc, Timestamp, serverTimestamp }
+      from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+    // ============================================================
+    // PASTE YOUR FIREBASE CONFIG HERE
+    // ============================================================
+    const firebaseConfig = {
+      apiKey: "AIzaSyCuWRS2ZM5fHMYKzM141OgJ7CARj3Z9H9I",
+    authDomain: "rccg-champions-media.firebaseapp.com",
+    projectId: "rccg-champions-media",
+    storageBucket: "rccg-champions-media.firebasestorage.app",
+    messagingSenderId: "457166432992",
+    appId: "1:457166432992:web:f065ea066a5fca0fa9fe85"
+    };
+    // ============================================================
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    let currentUser = null, currentUserData = null, activeMeeting = null, myClockRecord = null;
+
+    const showToast = (msg, type="success") => {
+      const t = document.getElementById("toast");
+      t.textContent = msg; t.className = `toast show ${type}`;
+      setTimeout(() => t.className = "toast", 3500);
+    };
+
+    const BADGE_DEFS = [
+      { id:"first_attendance", icon:"🌟", label:"First Steps",  req:(d)=>d.totalAttended>=1  },
+      { id:"streak_3",         icon:"🔥", label:"On Fire",      req:(d)=>d.streak>=3          },
+      { id:"streak_5",         icon:"⚡", label:"Committed",    req:(d)=>d.streak>=5          },
+      { id:"streak_10",        icon:"👑", label:"Champion",     req:(d)=>d.streak>=10         },
+      { id:"attended_10",      icon:"🎯", label:"Dedicated",    req:(d)=>d.totalAttended>=10  },
+      { id:"attended_25",      icon:"💎", label:"Elite",        req:(d)=>d.totalAttended>=25  },
+    ];
+
+    function renderBadges(ud) {
+      const c = document.getElementById("badgesContainer");
+      const earned = BADGE_DEFS.filter(b=>b.req(ud));
+      c.innerHTML = !earned.length
+        ? `<div class="empty-state"><div class="empty-icon">🏅</div><p>Attend meetings to earn badges.</p></div>`
+        : earned.map(b=>`<div style="display:flex;align-items:center;gap:6px;background:rgba(201,168,76,0.08);border:1px solid rgba(201,168,76,0.2);border-radius:20px;padding:6px 14px;"><span style="font-size:16px;">${b.icon}</span><span style="font-size:12px;font-weight:600;color:var(--gold-light);">${b.label}</span></div>`).join("");
+    }
+
+    function getDistance(lat1,lon1,lat2,lon2){
+      const R=6371000, dLat=(lat2-lat1)*Math.PI/180, dLon=(lon2-lon1)*Math.PI/180;
+      const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+      return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+    }
+
+    window.handleClockIn = async () => {
+      if (!activeMeeting || !currentUser) return;
+      const btn = document.getElementById("clockInBtn");
+      const statusEl = document.getElementById("clockStatus");
+      if (myClockRecord && myClockRecord.clockOutTime) { showToast("Already clocked in and out.","error"); return; }
+      if (myClockRecord && myClockRecord.clockInTime) {
+        btn.disabled = true;
+        await updateDoc(doc(db,"attendance",myClockRecord.id), { clockOutTime: serverTimestamp(), duration: Math.round((Date.now()-myClockRecord.clockInTime.toDate())/60000) });
+        showToast("Clocked out. See you next time! 🙏");
+        btn.textContent = "✓ Clocked Out"; btn.disabled = true;
+        statusEl.textContent = "You've clocked out. Thank you for being here."; return;
+      }
+      statusEl.textContent = "Verifying your location..."; btn.disabled = true;
+      if (!navigator.geolocation) { statusEl.textContent = "Location not supported."; btn.disabled=false; return; }
+      navigator.geolocation.getCurrentPosition(async (pos) => {
+        const {latitude,longitude} = pos.coords;
+        const dist = getDistance(latitude,longitude,activeMeeting.lat,activeMeeting.lng);
+        const maxDist = activeMeeting.radiusMeters||150;
+        if (dist > maxDist) { statusEl.textContent=`You're ${Math.round(dist)}m away. Must be on-site.`; btn.disabled=false; showToast("Not at venue. Clock-in denied.","error"); return; }
+        const now = new Date();
+        const isLate = (now - activeMeeting.scheduledAt.toDate()) > (activeMeeting.lateThresholdMinutes||15)*60000;
+        const record = await addDoc(collection(db,"attendance"), { userId:currentUser.uid, userName:currentUserData.name, meetingId:activeMeeting.id, meetingTitle:activeMeeting.title, clockInTime:serverTimestamp(), clockOutTime:null, late:isLate, lat:latitude, lng:longitude, pointsAwarded:isLate?5:10 });
+        const newPoints=(currentUserData.points||0)+(isLate?5:10), newStreak=(currentUserData.streak||0)+1, newAttended=(currentUserData.totalAttended||0)+1;
+        await updateDoc(doc(db,"users",currentUser.uid),{points:newPoints,streak:newStreak,totalAttended:newAttended});
+        currentUserData={...currentUserData,points:newPoints,streak:newStreak,totalAttended:newAttended};
+        myClockRecord={id:record.id,clockInTime:Timestamp.now(),late:isLate};
+        document.getElementById("statPoints").textContent=newPoints;
+        document.getElementById("statStreak").textContent=newStreak;
+        document.getElementById("statAttended").textContent=newAttended;
+        btn.classList.add("active"); document.getElementById("clockBtnText").textContent="Clock Out"; btn.disabled=false;
+        statusEl.textContent = isLate ? "Clocked in (late). Punctuality earns more points." : `Clocked in at ${now.toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"})}. Welcome! +${isLate?5:10} pts`;
+        showToast(isLate?"Clocked in (late) — +5 pts":"Clocked in! ✅ +10 pts");
+      }, () => { statusEl.textContent="Could not get location. Allow location access."; btn.disabled=false; showToast("Location access denied.","error"); }, {timeout:10000,enableHighAccuracy:true});
+    };
+
+    window.submitExcuse = async () => {
+      const meetingId=document.getElementById("excuseMeetingSelect").value;
+      const reason=document.getElementById("excuseReason").value.trim();
+      if(!meetingId){showToast("Select a meeting.","error");return;}
+      if(!reason){showToast("Provide a reason.","error");return;}
+      const q=query(collection(db,"excuses"),where("userId","==",currentUser.uid),where("meetingId","==",meetingId));
+      const ex=await getDocs(q);
+      if(!ex.empty){showToast("Already submitted an excuse for this meeting.","error");return;}
+      await addDoc(collection(db,"excuses"),{userId:currentUser.uid,userName:currentUserData.name,meetingId,meetingTitle:document.getElementById("excuseMeetingSelect").selectedOptions[0].text,reason,status:"pending",submittedAt:serverTimestamp()});
+      document.getElementById("excuseReason").value=""; document.getElementById("excuseMeetingSelect").value="";
+      showToast("Excuse submitted. Waiting for admin approval.");
+    };
+
+    window.handleLogout = async () => { await signOut(auth); window.location.href="../index.html"; };
+
+    onAuthStateChanged(auth, async (user) => {
+      if(!user){window.location.href="../index.html";return;}
+      currentUser=user;
+      const snap=await getDoc(doc(db,"users",user.uid));
+      if(!snap.exists()){window.location.href="../index.html";return;}
+      currentUserData=snap.data();
+      if(currentUserData.role==="admin"){window.location.href="admin.html";return;}
+      const initials=currentUserData.name.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase();
+      document.getElementById("navAvatar").textContent=initials;
+      document.getElementById("navName").textContent=currentUserData.name;
+      document.getElementById("navRole").textContent=currentUserData.mediaRole||"Member";
+      document.getElementById("welcomeMsg").textContent=`Welcome back, ${currentUserData.name.split(" ")[0]}`;
+      document.getElementById("statAttended").textContent=currentUserData.totalAttended||0;
+      document.getElementById("statMissed").textContent=currentUserData.totalMissed||0;
+      document.getElementById("statPoints").textContent=currentUserData.points||0;
+      document.getElementById("statStreak").textContent=currentUserData.streak||0;
+      renderBadges(currentUserData);
+
+      const activeQ=query(collection(db,"meetings"),where("status","==","active"));
+      const activeSnap=await getDocs(activeQ);
+      if(!activeSnap.empty){
+        activeMeeting={id:activeSnap.docs[0].id,...activeSnap.docs[0].data()};
+        document.getElementById("noMeetingMsg").classList.add("hidden");
+        document.getElementById("activeMeetingSection").classList.remove("hidden");
+        document.getElementById("activeMeetingName").textContent=activeMeeting.title;
+        const st=activeMeeting.scheduledAt.toDate();
+        document.getElementById("activeMeetingMeta").textContent=`${st.toLocaleDateString("en-NG",{weekday:"long",day:"numeric",month:"long"})} · ${st.toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"})}`;
+        const crQ=query(collection(db,"attendance"),where("meetingId","==",activeMeeting.id),where("userId","==",currentUser.uid));
+        const crSnap=await getDocs(crQ);
+        if(!crSnap.empty){
+          myClockRecord={id:crSnap.docs[0].id,...crSnap.docs[0].data()};
+          const btn=document.getElementById("clockInBtn");
+          if(myClockRecord.clockOutTime){btn.textContent="✓ Clocked Out";btn.disabled=true;document.getElementById("clockStatus").textContent="You've completed this meeting.";}
+          else{btn.classList.add("active");document.getElementById("clockBtnText").textContent="Clock Out";document.getElementById("clockStatus").textContent="You're checked in. Click to clock out when done.";}
+        }
+      }
+
+      const upQ=query(collection(db,"meetings"),where("status","==","upcoming"),orderBy("scheduledAt","asc"));
+      const upSnap=await getDocs(upQ);
+      const sel=document.getElementById("excuseMeetingSelect");
+      sel.innerHTML='<option value="">Select upcoming meeting</option>';
+      upSnap.forEach(d=>{const m=d.data();const o=document.createElement("option");o.value=d.id;o.textContent=`${m.title} — ${new Date(m.scheduledAt.toDate()).toLocaleDateString("en-NG",{weekday:"short",day:"numeric",month:"short"})}`;sel.appendChild(o);});
+
+      const hQ=query(collection(db,"attendance"),where("userId","==",currentUser.uid),orderBy("clockInTime","desc"));
+      const hSnap=await getDocs(hQ);
+      const list=document.getElementById("historyList");
+      if(hSnap.empty){list.innerHTML=`<div class="empty-state"><div class="empty-icon">📋</div><p>No records yet.</p></div>`;return;}
+      let html=`<table class="attendance-table"><thead><tr><th>Meeting</th><th>Date</th><th>In</th><th>Out</th><th>Status</th></tr></thead><tbody>`;
+      hSnap.forEach(d=>{const r=d.data();const dateStr=r.clockInTime?new Date(r.clockInTime.toDate()).toLocaleDateString("en-NG",{day:"numeric",month:"short"}):"—";const inStr=r.clockInTime?new Date(r.clockInTime.toDate()).toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"}):"—";const outStr=r.clockOutTime?new Date(r.clockOutTime.toDate()).toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"}):"—";html+=`<tr><td>${r.meetingTitle||"—"}</td><td>${dateStr}</td><td>${inStr}</td><td>${outStr}</td><td><span class="badge ${r.late?"badge-late":"badge-present"}">${r.late?"Late":"Present"}</span></td></tr>`;});
+      html+=`</tbody></table>`;
+      list.innerHTML=html;
+    });
+  </script>
+</body>
+</html>
