@@ -2,43 +2,77 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
   <title>My Dashboard — Champions Cathedral Media Team</title>
+  <meta name="theme-color" content="#0A1628"/>
+
+  <link rel="icon" href="../favicon.ico" sizes="any"/>
+  <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png"/>
+  <link rel="apple-touch-icon" href="../assets/apple-touch-icon.png"/>
+  <link rel="manifest" href="../manifest.webmanifest"/>
+
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
   <link rel="stylesheet" href="../css/style.css"/>
 </head>
 <body class="dashboard-body">
   <nav class="navbar">
     <div class="nav-brand">
-      <span class="nav-brand-icon">✦</span>
-      <div><div class="nav-brand-name">Champions Cathedral</div><div class="nav-brand-sub">Media Team Portal</div></div>
+      <img class="nav-brand-logo" src="../assets/logo.png" alt="Champions Cathedral crest"/>
+      <div class="nav-brand-text"><div class="nav-brand-name">Champions Cathedral</div><div class="nav-brand-sub">Media Team Portal</div></div>
     </div>
     <div class="nav-right">
-      <div class="nav-user">
-        <div class="nav-avatar" id="navAvatar">?</div>
+      <button class="nav-user" id="navUserBtn" onclick="openProfileModal()">
+        <div class="avatar nav-avatar" id="navAvatar">?</div>
         <div><div class="nav-user-name" id="navName">Loading...</div><div class="nav-user-role" id="navRole">Member</div></div>
-      </div>
-      <button class="btn-logout" onclick="handleLogout()">Sign Out</button>
+      </button>
+      <button class="btn-logout" onclick="handleLogout()" id="logoutIconBtn" aria-label="Sign out"></button>
     </div>
   </nav>
 
   <main class="main-content">
     <div class="page-header">
-      <h1 id="welcomeMsg">Welcome back</h1>
-      <p>Here's your attendance overview for this season.</p>
+      <div><h1 id="welcomeMsg">Welcome back</h1><p>Here's your attendance overview for this season.</p></div>
     </div>
 
-    <div class="stats-row">
-      <div class="stat-card"><div class="stat-label">Meetings Attended</div><div class="stat-value green" id="statAttended">0</div><div class="stat-badge">Total this season</div></div>
-      <div class="stat-card"><div class="stat-label">Missed</div><div class="stat-value red" id="statMissed">0</div><div class="stat-badge">Unexcused absences</div></div>
-      <div class="stat-card"><div class="stat-label">Points</div><div class="stat-value gold" id="statPoints">0</div><div class="stat-badge">Consistency score</div></div>
-      <div class="stat-card"><div class="stat-label">Current Streak</div><div class="stat-value gold" id="statStreak">0</div><div class="stat-badge">Meetings in a row</div></div>
+    <div class="stats-row" id="statsRow">
+      <div class="stat-card reveal"><div class="stat-label">Meetings Attended</div><div class="stat-value green" id="statAttended">0</div><div class="stat-badge">Total this season</div></div>
+      <div class="stat-card reveal"><div class="stat-label">Missed</div><div class="stat-value red" id="statMissed">0</div><div class="stat-badge">Unexcused absences</div></div>
+      <div class="stat-card reveal"><div class="stat-label">Points</div><div class="stat-value gold" id="statPoints">0</div><div class="stat-badge">Consistency score</div></div>
+      <div class="stat-card reveal"><div class="stat-label">Current Streak</div><div class="stat-value gold" id="statStreak">0</div><div class="stat-badge">Meetings in a row</div></div>
     </div>
 
-    <div class="card">
+    <div class="card reveal">
+      <div class="card-header"><div><div class="card-title">Your Rank</div><div class="card-title-sub">Points unlock new titles</div></div></div>
+      <div class="ring-card">
+        <div class="ring-wrap">
+          <svg viewBox="0 0 100 100" width="84" height="84">
+            <defs><linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#C9A84C"/><stop offset="100%" stop-color="#E2C472"/></linearGradient></defs>
+            <circle class="ring-track" cx="50" cy="50" r="40"/>
+            <circle class="ring-progress" id="rankRing" cx="50" cy="50" r="40" stroke-dashoffset="251"/>
+          </svg>
+          <div class="ring-label"><span class="lvl-num" id="rankPct">0%</span><span class="lvl-txt">Level</span></div>
+        </div>
+        <div>
+          <div class="rank-title" id="rankTitle">Rookie</div>
+          <div class="rank-next" id="rankNext">Loading rank progress…</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card devotional-card reveal">
+      <div class="devotional-top">
+        <div class="devotional-eyebrow" id="devoEyebrow">Today's Word</div>
+        <div class="flame-wrap"><span id="flameIconWrap"></span><span class="flame-count" id="flameCount">0</span><span style="font-size:11px;color:var(--white-dim);">day streak</span></div>
+      </div>
+      <div class="devotional-verse-ref" id="devoRef">—</div>
+      <div class="devotional-verse-text" id="devoText">—</div>
+      <button class="btn-devotional" id="devoBtn" onclick="handleDevotionalCheckIn()"><span id="devoBtnIcon"></span><span id="devoBtnText">I've Read Today's Word · +3 pts</span></button>
+    </div>
+
+    <div class="card reveal">
       <div class="no-meeting-msg" id="noMeetingMsg">
-        <div class="no-meeting-icon">📅</div>
+        <span id="noMeetingIconWrap"></span>
         <p>No active meeting right now. Check back when a meeting is scheduled.</p>
       </div>
       <div id="activeMeetingSection" class="hidden">
@@ -47,7 +81,7 @@
           <div class="meeting-name" id="activeMeetingName">—</div>
           <div class="meeting-meta" id="activeMeetingMeta">—</div>
           <button class="btn-clockin" id="clockInBtn" onclick="handleClockIn()">
-            <span>⏱</span> <span id="clockBtnText">Clock In</span>
+            <span id="clockBtnIcon"></span> <span id="clockBtnText">Clock In</span>
           </button>
           <p style="font-size:12px;color:var(--white-dim);margin-top:12px;" id="clockStatus"></p>
         </div>
@@ -55,14 +89,14 @@
     </div>
 
     <div class="grid-2">
-      <div class="card">
+      <div class="card reveal">
         <div class="card-header">
           <div><div class="card-title">Attendance History</div><div class="card-title-sub">Your recent meeting records</div></div>
         </div>
-        <div id="historyList"><div class="empty-state"><div class="empty-icon">📋</div><p>No records yet.</p></div></div>
+        <div id="historyList"><div class="skeleton skel-line" style="width:100%"></div><div class="skeleton skel-line" style="width:90%"></div><div class="skeleton skel-line" style="width:95%"></div></div>
       </div>
       <div>
-        <div class="card" style="margin-bottom:20px;">
+        <div class="card reveal" style="margin-bottom:20px;">
           <div class="card-header">
             <div><div class="card-title">Submit an Excuse</div><div class="card-title-sub">Can't make it? Let the admin know</div></div>
           </div>
@@ -78,65 +112,156 @@
             <button class="btn-primary" onclick="submitExcuse()" style="width:auto;padding:11px 24px;"><span>Submit Request</span></button>
           </div>
         </div>
-        <div class="card">
+        <div class="card reveal">
           <div class="card-header">
             <div><div class="card-title">Your Badges</div><div class="card-title-sub">Earned through consistency</div></div>
           </div>
-          <div id="badgesContainer" style="display:flex;flex-wrap:wrap;gap:10px;">
-            <div class="empty-state"><div class="empty-icon">🏅</div><p>Attend meetings to earn badges.</p></div>
-          </div>
+          <div id="badgesContainer" style="display:flex;flex-wrap:wrap;gap:10px;"></div>
         </div>
       </div>
     </div>
   </main>
 
+  <!-- PROFILE MODAL -->
+  <div class="modal-overlay" id="profileModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title">Profile Settings</div>
+        <button class="modal-close" onclick="closeModalX()" aria-label="Close"></button>
+      </div>
+      <div class="avatar-upload-zone">
+        <div class="avatar-big-wrap">
+          <div class="avatar avatar-big" id="modalAvatar">?</div>
+          <button class="avatar-big-edit" id="avatarEditBtn" aria-label="Change photo"></button>
+          <input type="file" id="avatarFileInput" accept="image/*" class="hidden"/>
+        </div>
+        <div id="modalName" style="font-weight:600;"></div>
+        <div class="avatar-hint" id="avatarHint">JPG or PNG. We'll crop it to a square automatically.</div>
+        <div class="avatar-progress hidden" id="avatarProgressWrap"><div class="avatar-progress-bar" id="avatarProgressBar"></div></div>
+      </div>
+      <div style="font-size:12px;color:var(--white-dim);text-align:center;">Signed in as <strong id="modalEmail" style="color:var(--white);"></strong></div>
+    </div>
+  </div>
+
   <div class="toast" id="toast"></div>
 
   <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-    import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-    import { getFirestore, doc, getDoc, getDocs, collection, query, where, orderBy, addDoc, updateDoc, Timestamp, serverTimestamp }
+    import { auth, db, storage } from "../js/firebase-config.js";
+    import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+    import { doc, getDoc, getDocs, collection, query, where, orderBy, addDoc, updateDoc, Timestamp, serverTimestamp }
       from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+    import { ref as storageRef, uploadBytesResumable, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
+    import { icon } from "../js/icons.js";
+    import { initReveal, staggerIn, confettiBurst, showToast, imageToSquareBlob, openModal, closeModal } from "../js/motion.js";
+    import { getTodayDevotional, todayKey, DEVOTIONAL_BADGES } from "../js/devotionals.js";
 
-    // ============================================================
-    // PASTE YOUR FIREBASE CONFIG HERE
-    // ============================================================
-    const firebaseConfig = {
-      apiKey: "AIzaSyCuWRS2ZM5fHMYKzM141OgJ7CARj3Z9H9I",
-    authDomain: "rccg-champions-media.firebaseapp.com",
-    projectId: "rccg-champions-media",
-    storageBucket: "rccg-champions-media.firebasestorage.app",
-    messagingSenderId: "457166432992",
-    appId: "1:457166432992:web:f065ea066a5fca0fa9fe85"
-    };
-    // ============================================================
-
-    const app = initializeApp(firebaseConfig);
-    const auth = getAuth(app);
-    const db = getFirestore(app);
     let currentUser = null, currentUserData = null, activeMeeting = null, myClockRecord = null;
+    let devotionalDoneToday = false;
 
-    const showToast = (msg, type="success") => {
-      const t = document.getElementById("toast");
-      t.textContent = msg; t.className = `toast show ${type}`;
-      setTimeout(() => t.className = "toast", 3500);
-    };
+    // ---------- icon injection ----------
+    document.getElementById("logoutIconBtn").innerHTML = icon("logOut");
+    document.getElementById("noMeetingIconWrap").innerHTML = icon("calendar", "icon-xl");
+    document.getElementById("clockBtnIcon").innerHTML = icon("clock");
+    document.getElementById("flameIconWrap").innerHTML = icon("flame", "flame-icon");
+    document.getElementById("devoBtnIcon").innerHTML = icon("bookOpen");
+    document.getElementById("avatarEditBtn").innerHTML = icon("camera");
+    document.querySelector(".modal-close").innerHTML = icon("x");
 
     const BADGE_DEFS = [
-      { id:"first_attendance", icon:"🌟", label:"First Steps",  req:(d)=>d.totalAttended>=1  },
-      { id:"streak_3",         icon:"🔥", label:"On Fire",      req:(d)=>d.streak>=3          },
-      { id:"streak_5",         icon:"⚡", label:"Committed",    req:(d)=>d.streak>=5          },
-      { id:"streak_10",        icon:"👑", label:"Champion",     req:(d)=>d.streak>=10         },
-      { id:"attended_10",      icon:"🎯", label:"Dedicated",    req:(d)=>d.totalAttended>=10  },
-      { id:"attended_25",      icon:"💎", label:"Elite",        req:(d)=>d.totalAttended>=25  },
+      { id: "first", icon: "🌟", label: "First Steps", req: (ud) => (ud.totalAttended || 0) >= 1 },
+      { id: "onfire", icon: "🔥", label: "On Fire", req: (ud) => (ud.streak || 0) >= 3 },
+      { id: "committed", icon: "⚡", label: "Committed", req: (ud) => (ud.streak || 0) >= 5 },
+      { id: "champion", icon: "👑", label: "Champion", req: (ud) => (ud.streak || 0) >= 10 },
+      { id: "dedicated", icon: "🎯", label: "Dedicated", req: (ud) => (ud.totalAttended || 0) >= 10 },
+      { id: "elite", icon: "💎", label: "Elite", req: (ud) => (ud.totalAttended || 0) >= 25 },
+      ...DEVOTIONAL_BADGES,
     ];
+
+    const LEVELS = [
+      { name: "Rookie", min: 0 },
+      { name: "Committed", min: 50 },
+      { name: "Elite", min: 150 },
+      { name: "Champion", min: 350 },
+      { name: "Legend", min: 700 },
+    ];
+    function levelInfo(points) {
+      let idx = 0;
+      for (let i = 0; i < LEVELS.length; i++) if (points >= LEVELS[i].min) idx = i;
+      const current = LEVELS[idx], next = LEVELS[idx + 1];
+      const pct = next ? Math.max(0, Math.min(100, Math.round(((points - current.min) / (next.min - current.min)) * 100))) : 100;
+      return { current, next, pct };
+    }
+    function renderRank(points) {
+      const { current, next, pct } = levelInfo(points);
+      const C = 251.327;
+      document.getElementById("rankRing").style.strokeDashoffset = C - (C * pct) / 100;
+      document.getElementById("rankPct").textContent = pct + "%";
+      document.getElementById("rankTitle").textContent = current.name;
+      document.getElementById("rankNext").textContent = next ? `${points} of ${next.min} pts to ${next.name}` : "Top rank reached — Legend status!";
+    }
+
+    function avatarHTML(ud) {
+      const initials = (ud.name || "?").split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase();
+      return ud.photoURL ? `<img src="${ud.photoURL}" alt="${ud.name}"/>` : initials;
+    }
+    function refreshAvatars() {
+      document.getElementById("navAvatar").innerHTML = avatarHTML(currentUserData);
+      document.getElementById("modalAvatar").innerHTML = avatarHTML(currentUserData);
+    }
+
+    window.openProfileModal = () => {
+      document.getElementById("modalName").textContent = currentUserData.name;
+      document.getElementById("modalEmail").textContent = currentUserData.email;
+      refreshAvatars();
+      openModal("profileModal");
+    };
+    window.closeModalX = () => closeModal("profileModal");
+    document.getElementById("profileModal").addEventListener("click", (e) => { if (e.target.id === "profileModal") closeModal("profileModal"); });
+
+    document.getElementById("avatarEditBtn").addEventListener("click", () => document.getElementById("avatarFileInput").click());
+    document.getElementById("avatarFileInput").addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const hint = document.getElementById("avatarHint");
+      const progressWrap = document.getElementById("avatarProgressWrap");
+      const progressBar = document.getElementById("avatarProgressBar");
+      try {
+        hint.textContent = "Processing image…";
+        const blob = await imageToSquareBlob(file, 480, 0.86);
+        const localUrl = URL.createObjectURL(blob);
+        document.getElementById("modalAvatar").innerHTML = `<img src="${localUrl}" alt="preview"/>`;
+        document.getElementById("navAvatar").innerHTML = `<img src="${localUrl}" alt="preview"/>`;
+        progressWrap.classList.remove("hidden");
+        hint.textContent = "Uploading…";
+        const sRef = storageRef(storage, `profile-pictures/${currentUser.uid}.jpg`);
+        const task = uploadBytesResumable(sRef, blob, { contentType: "image/jpeg" });
+        task.on("state_changed", (snap) => {
+          const pct = Math.round((snap.bytesTransferred / snap.totalBytes) * 100);
+          progressBar.style.width = pct + "%";
+        }, (err) => {
+          hint.textContent = "Upload failed. Try again.";
+          progressWrap.classList.add("hidden");
+          showToast("Photo upload failed.", "error", icon("alert"));
+        }, async () => {
+          const url = await getDownloadURL(sRef);
+          await updateDoc(doc(db, "users", currentUser.uid), { photoURL: url });
+          currentUserData.photoURL = url;
+          progressWrap.classList.add("hidden");
+          hint.textContent = "JPG or PNG. We'll crop it to a square automatically.";
+          showToast("Profile photo updated!", "success", icon("check"));
+        });
+      } catch (err) {
+        hint.textContent = "Couldn't process that image. Try another.";
+        showToast("Couldn't process that image.", "error", icon("alert"));
+      }
+    });
 
     function renderBadges(ud) {
       const c = document.getElementById("badgesContainer");
-      const earned = BADGE_DEFS.filter(b=>b.req(ud));
+      const earned = BADGE_DEFS.filter((b) => b.req(ud));
       c.innerHTML = !earned.length
-        ? `<div class="empty-state"><div class="empty-icon">🏅</div><p>Attend meetings to earn badges.</p></div>`
-        : earned.map(b=>`<div style="display:flex;align-items:center;gap:6px;background:rgba(201,168,76,0.08);border:1px solid rgba(201,168,76,0.2);border-radius:20px;padding:6px 14px;"><span style="font-size:16px;">${b.icon}</span><span style="font-size:12px;font-weight:600;color:var(--gold-light);">${b.label}</span></div>`).join("");
+        ? `<div class="empty-state" style="padding:24px 8px;">${icon("award", "icon-xl")}<p>Attend meetings or read the daily Word to earn badges.</p></div>`
+        : earned.map((b) => `<div class="earned-badge"><span class="earned-badge-icon">${b.icon}</span><span class="earned-badge-label">${b.label}</span></div>`).join("");
     }
 
     function getDistance(lat1,lon1,lat2,lon2){
@@ -149,12 +274,12 @@
       if (!activeMeeting || !currentUser) return;
       const btn = document.getElementById("clockInBtn");
       const statusEl = document.getElementById("clockStatus");
-      if (myClockRecord && myClockRecord.clockOutTime) { showToast("Already clocked in and out.","error"); return; }
+      if (myClockRecord && myClockRecord.clockOutTime) { showToast("Already clocked in and out.","error",icon("alert")); return; }
       if (myClockRecord && myClockRecord.clockInTime) {
         btn.disabled = true;
         await updateDoc(doc(db,"attendance",myClockRecord.id), { clockOutTime: serverTimestamp(), duration: Math.round((Date.now()-myClockRecord.clockInTime.toDate())/60000) });
         showToast("Clocked out. See you next time! 🙏");
-        btn.textContent = "✓ Clocked Out"; btn.disabled = true;
+        document.getElementById("clockBtnText").textContent = "Clocked Out"; btn.disabled = true;
         statusEl.textContent = "You've clocked out. Thank you for being here."; return;
       }
       statusEl.textContent = "Verifying your location..."; btn.disabled = true;
@@ -163,10 +288,11 @@
         const {latitude,longitude} = pos.coords;
         const dist = getDistance(latitude,longitude,activeMeeting.lat,activeMeeting.lng);
         const maxDist = activeMeeting.radiusMeters||150;
-        if (dist > maxDist) { statusEl.textContent=`You're ${Math.round(dist)}m away. Must be on-site.`; btn.disabled=false; showToast("Not at venue. Clock-in denied.","error"); return; }
+        if (dist > maxDist) { statusEl.textContent=`You're ${Math.round(dist)}m away. Must be on-site.`; btn.disabled=false; showToast("Not at venue. Clock-in denied.","error",icon("alert")); return; }
         const now = new Date();
         const isLate = (now - activeMeeting.scheduledAt.toDate()) > (activeMeeting.lateThresholdMinutes||15)*60000;
         const record = await addDoc(collection(db,"attendance"), { userId:currentUser.uid, userName:currentUserData.name, meetingId:activeMeeting.id, meetingTitle:activeMeeting.title, clockInTime:serverTimestamp(), clockOutTime:null, late:isLate, lat:latitude, lng:longitude, pointsAwarded:isLate?5:10 });
+        const prevBadges = BADGE_DEFS.filter(b=>b.req(currentUserData)).map(b=>b.id);
         const newPoints=(currentUserData.points||0)+(isLate?5:10), newStreak=(currentUserData.streak||0)+1, newAttended=(currentUserData.totalAttended||0)+1;
         await updateDoc(doc(db,"users",currentUser.uid),{points:newPoints,streak:newStreak,totalAttended:newAttended});
         currentUserData={...currentUserData,points:newPoints,streak:newStreak,totalAttended:newAttended};
@@ -174,20 +300,61 @@
         document.getElementById("statPoints").textContent=newPoints;
         document.getElementById("statStreak").textContent=newStreak;
         document.getElementById("statAttended").textContent=newAttended;
+        renderRank(newPoints);
         btn.classList.add("active"); document.getElementById("clockBtnText").textContent="Clock Out"; btn.disabled=false;
         statusEl.textContent = isLate ? "Clocked in (late). Punctuality earns more points." : `Clocked in at ${now.toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"})}. Welcome! +${isLate?5:10} pts`;
         showToast(isLate?"Clocked in (late) — +5 pts":"Clocked in! ✅ +10 pts");
-      }, () => { statusEl.textContent="Could not get location. Allow location access."; btn.disabled=false; showToast("Location access denied.","error"); }, {timeout:10000,enableHighAccuracy:true});
+        const rect = btn.getBoundingClientRect();
+        confettiBurst({ x: rect.left + rect.width/2, y: rect.top, count: isLate ? 40 : 80 });
+        renderBadges(currentUserData);
+        const newBadges = BADGE_DEFS.filter(b=>b.req(currentUserData) && !prevBadges.includes(b.id));
+        newBadges.forEach(b => setTimeout(()=>showToast(`New badge unlocked: ${b.icon} ${b.label}!`,"success"), 900));
+      }, () => { statusEl.textContent="Could not get location. Allow location access."; btn.disabled=false; showToast("Location access denied.","error",icon("alert")); }, {timeout:10000,enableHighAccuracy:true});
+    };
+
+    window.handleDevotionalCheckIn = async () => {
+      if (devotionalDoneToday || !currentUser) return;
+      const btn = document.getElementById("devoBtn");
+      btn.disabled = true;
+      const today = todayKey();
+      const yesterday = todayKey(new Date(Date.now() - 86400000));
+      const devo = getTodayDevotional();
+      const prevBadges = BADGE_DEFS.filter(b=>b.req(currentUserData)).map(b=>b.id);
+      const newStreak = currentUserData.lastDevotionalDate === yesterday ? (currentUserData.devotionalStreak || 0) + 1 : 1;
+      const newLongest = Math.max(currentUserData.devotionalLongestStreak || 0, newStreak);
+      const newTotal = (currentUserData.totalDevotionals || 0) + 1;
+      const newPoints = (currentUserData.points || 0) + 3;
+      try {
+        await addDoc(collection(db, "devotionalLogs"), { userId: currentUser.uid, date: today, ref: devo.ref, theme: devo.theme, completedAt: serverTimestamp() });
+        await updateDoc(doc(db, "users", currentUser.uid), { devotionalStreak: newStreak, devotionalLongestStreak: newLongest, totalDevotionals: newTotal, lastDevotionalDate: today, points: newPoints });
+        currentUserData = { ...currentUserData, devotionalStreak: newStreak, devotionalLongestStreak: newLongest, totalDevotionals: newTotal, lastDevotionalDate: today, points: newPoints };
+        devotionalDoneToday = true;
+        document.getElementById("flameCount").textContent = newStreak;
+        document.getElementById("statPoints").textContent = newPoints;
+        renderRank(newPoints);
+        document.getElementById("devoBtnIcon").innerHTML = icon("check");
+        document.getElementById("devoBtnText").textContent = "Read Today — see you tomorrow";
+        btn.disabled = true;
+        const rect = btn.getBoundingClientRect();
+        confettiBurst({ x: rect.left + rect.width/2, y: rect.top, count: 50, colors: ["#FFB020","#FF5A36","#E2C472"] });
+        showToast(`Word logged — ${newStreak}-day streak! +3 pts`, "success", icon("flame"));
+        renderBadges(currentUserData);
+        const newBadges = BADGE_DEFS.filter(b=>b.req(currentUserData) && !prevBadges.includes(b.id));
+        newBadges.forEach(b => setTimeout(()=>showToast(`New badge unlocked: ${b.icon} ${b.label}!`,"success"), 900));
+      } catch (err) {
+        btn.disabled = false;
+        showToast("Couldn't log today's Word. Try again.", "error", icon("alert"));
+      }
     };
 
     window.submitExcuse = async () => {
       const meetingId=document.getElementById("excuseMeetingSelect").value;
       const reason=document.getElementById("excuseReason").value.trim();
-      if(!meetingId){showToast("Select a meeting.","error");return;}
-      if(!reason){showToast("Provide a reason.","error");return;}
+      if(!meetingId){showToast("Select a meeting.","error",icon("alert"));return;}
+      if(!reason){showToast("Provide a reason.","error",icon("alert"));return;}
       const q=query(collection(db,"excuses"),where("userId","==",currentUser.uid),where("meetingId","==",meetingId));
       const ex=await getDocs(q);
-      if(!ex.empty){showToast("Already submitted an excuse for this meeting.","error");return;}
+      if(!ex.empty){showToast("Already submitted an excuse for this meeting.","error",icon("alert"));return;}
       await addDoc(collection(db,"excuses"),{userId:currentUser.uid,userName:currentUserData.name,meetingId,meetingTitle:document.getElementById("excuseMeetingSelect").selectedOptions[0].text,reason,status:"pending",submittedAt:serverTimestamp()});
       document.getElementById("excuseReason").value=""; document.getElementById("excuseMeetingSelect").value="";
       showToast("Excuse submitted. Waiting for admin approval.");
@@ -202,8 +369,8 @@
       if(!snap.exists()){window.location.href="../index.html";return;}
       currentUserData=snap.data();
       if(currentUserData.role==="admin"){window.location.href="admin.html";return;}
-      const initials=currentUserData.name.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase();
-      document.getElementById("navAvatar").textContent=initials;
+
+      refreshAvatars();
       document.getElementById("navName").textContent=currentUserData.name;
       document.getElementById("navRole").textContent=currentUserData.mediaRole||"Member";
       document.getElementById("welcomeMsg").textContent=`Welcome back, ${currentUserData.name.split(" ")[0]}`;
@@ -211,7 +378,23 @@
       document.getElementById("statMissed").textContent=currentUserData.totalMissed||0;
       document.getElementById("statPoints").textContent=currentUserData.points||0;
       document.getElementById("statStreak").textContent=currentUserData.streak||0;
+      renderRank(currentUserData.points||0);
       renderBadges(currentUserData);
+
+      // devotional
+      const devo = getTodayDevotional();
+      document.getElementById("devoRef").textContent = `${devo.theme} · ${devo.ref}`;
+      document.getElementById("devoText").textContent = devo.text;
+      document.getElementById("flameCount").textContent = currentUserData.devotionalStreak || 0;
+      const today = todayKey();
+      const devoQ = query(collection(db,"devotionalLogs"), where("userId","==",currentUser.uid), where("date","==",today));
+      const devoSnap = await getDocs(devoQ);
+      if (!devoSnap.empty) {
+        devotionalDoneToday = true;
+        document.getElementById("devoBtnIcon").innerHTML = icon("check");
+        document.getElementById("devoBtnText").textContent = "Read Today — see you tomorrow";
+        document.getElementById("devoBtn").disabled = true;
+      }
 
       const activeQ=query(collection(db,"meetings"),where("status","==","active"));
       const activeSnap=await getDocs(activeQ);
@@ -227,7 +410,7 @@
         if(!crSnap.empty){
           myClockRecord={id:crSnap.docs[0].id,...crSnap.docs[0].data()};
           const btn=document.getElementById("clockInBtn");
-          if(myClockRecord.clockOutTime){btn.textContent="✓ Clocked Out";btn.disabled=true;document.getElementById("clockStatus").textContent="You've completed this meeting.";}
+          if(myClockRecord.clockOutTime){document.getElementById("clockBtnText").textContent="Clocked Out";btn.disabled=true;document.getElementById("clockStatus").textContent="You've completed this meeting.";}
           else{btn.classList.add("active");document.getElementById("clockBtnText").textContent="Clock Out";document.getElementById("clockStatus").textContent="You're checked in. Click to clock out when done.";}
         }
       }
@@ -241,11 +424,15 @@
       const hQ=query(collection(db,"attendance"),where("userId","==",currentUser.uid),orderBy("clockInTime","desc"));
       const hSnap=await getDocs(hQ);
       const list=document.getElementById("historyList");
-      if(hSnap.empty){list.innerHTML=`<div class="empty-state"><div class="empty-icon">📋</div><p>No records yet.</p></div>`;return;}
-      let html=`<table class="attendance-table"><thead><tr><th>Meeting</th><th>Date</th><th>In</th><th>Out</th><th>Status</th></tr></thead><tbody>`;
-      hSnap.forEach(d=>{const r=d.data();const dateStr=r.clockInTime?new Date(r.clockInTime.toDate()).toLocaleDateString("en-NG",{day:"numeric",month:"short"}):"—";const inStr=r.clockInTime?new Date(r.clockInTime.toDate()).toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"}):"—";const outStr=r.clockOutTime?new Date(r.clockOutTime.toDate()).toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"}):"—";html+=`<tr><td>${r.meetingTitle||"—"}</td><td>${dateStr}</td><td>${inStr}</td><td>${outStr}</td><td><span class="badge ${r.late?"badge-late":"badge-present"}">${r.late?"Late":"Present"}</span></td></tr>`;});
-      html+=`</tbody></table>`;
-      list.innerHTML=html;
+      if(hSnap.empty){list.innerHTML=`<div class="empty-state">${icon("clipboard","icon-xl")}<p>No records yet.</p></div>`;}
+      else{
+        let html=`<div class="table-scroll"><table class="attendance-table"><thead><tr><th>Meeting</th><th>Date</th><th>In</th><th>Out</th><th>Status</th></tr></thead><tbody>`;
+        hSnap.forEach(d=>{const r=d.data();const dateStr=r.clockInTime?new Date(r.clockInTime.toDate()).toLocaleDateString("en-NG",{day:"numeric",month:"short"}):"—";const inStr=r.clockInTime?new Date(r.clockInTime.toDate()).toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"}):"—";const outStr=r.clockOutTime?new Date(r.clockOutTime.toDate()).toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"}):"—";html+=`<tr><td>${r.meetingTitle||"—"}</td><td>${dateStr}</td><td>${inStr}</td><td>${outStr}</td><td><span class="badge ${r.late?"badge-late":"badge-present"}">${r.late?"Late":"Present"}</span></td></tr>`;});
+        html+=`</tbody></table></div>`;
+        list.innerHTML=html;
+      }
+
+      staggerIn(document.querySelectorAll(".reveal"), 70);
     });
   </script>
 </body>
