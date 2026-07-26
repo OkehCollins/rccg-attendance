@@ -3,6 +3,26 @@
 
 ---
 
+## WHAT CHANGED IN THIS VERSION
+
+- **Profile photos now use Cloudinary, not Firebase Storage** — Storage
+  requires the paid Blaze plan even for free-tier usage; Cloudinary doesn't.
+- **Fixed: Members tab and Leaderboard tab could silently fail to load.**
+  Both queries combined a filter with a sort on a different field, which
+  Firestore requires a manual "composite index" for — one that never
+  existed in this project, so the query quietly errored out and the tab
+  stayed empty. Both now sort in the browser instead, so no index is needed.
+- **Fixed: a meeting the admin starts now appears on members' dashboards
+  automatically**, without needing a page refresh (uses a live Firestore
+  listener instead of a one-time page-load check). The admin's own
+  "Active Meeting" card updates live the same way.
+- **Added resilience:** every dashboard section now fails on its own if a
+  query has a problem, instead of one failure freezing the whole page —
+  and shows the actual error message inline so it's easy to diagnose.
+- **Added six new media team roles** to registration (see below).
+
+---
+
 ## STEP 1: Create Your Firebase Project
 
 1. Go to https://firebase.google.com
@@ -27,11 +47,19 @@
 
 ---
 
-## STEP 4: Enable Storage (new — needed for profile pictures)
+## STEP 4: Create Your Cloudinary Account (for profile pictures)
 
-1. Click "Storage" in the sidebar → "Get started"
-2. Choose "Start in test mode" → Next → Done
-3. Note the bucket name shown at the top (e.g. `rccg-champions-media.firebasestorage.app`)
+Firebase Storage now requires a paid Blaze plan even for free-tier usage, so
+profile photos are hosted on **Cloudinary** instead — free, no card required.
+
+1. Go to https://cloudinary.com → sign up (free plan, no card needed)
+2. On your dashboard, copy your **Cloud Name** (shown at the top)
+3. Go to **Settings** (gear icon) → **Upload** tab → scroll to "Upload presets"
+4. Click **"Add upload preset"**
+5. Set **Signing Mode** to **"Unsigned"** → **Save**
+6. Copy the preset name it gives you (e.g. `ml_default` or a random name)
+
+You'll paste both values into `js/cloudinary-config.js` in Step 6 below.
 
 ---
 
@@ -44,15 +72,16 @@
 
 ---
 
-## STEP 6: Paste Config in ONE Place
+## STEP 6: Paste Your Config (TWO files, one time each)
 
-Unlike before, the config now lives in a single shared file:
+**Firebase config** lives in `js/firebase-config.js` — open it and replace
+the object under `// PASTE YOUR FIREBASE CONFIG HERE`.
+All three pages (index.html, pages/member.html, pages/admin.html) import
+from this one file, so you only ever edit it in one place.
 
-  js/firebase-config.js
-
-Open it and replace the object under `// PASTE YOUR FIREBASE CONFIG HERE`.
-All three pages (index.html, pages/member.html, pages/admin.html) import from
-this one file, so you only ever edit it in one place.
+**Cloudinary config** lives in `js/cloudinary-config.js` — open it and
+replace `YOUR_CLOUD_NAME` and `YOUR_UNSIGNED_PRESET` with the values from
+Step 4. Both dashboards import from this one file too.
 
 ---
 
@@ -97,32 +126,7 @@ Click Publish.
 
 ---
 
-## STEP 8: Set Storage Security Rules (new — for profile pictures)
-
-In Firebase → Storage → Rules tab, paste this:
-
-```
-rules_version = '2';
-service firebase.storage {
-  match /b/{bucket}/o {
-    match /profile-pictures/{userId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && (
-        request.auth.uid + '.jpg' == userId ||
-        firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == 'admin'
-      ) && request.resource.size < 5 * 1024 * 1024
-        && request.resource.contentType.matches('image/.*');
-    }
-  }
-}
-```
-
-This lets a member upload their own photo, lets an admin upload on behalf of
-any member, caps uploads at 5MB, and only accepts image files. Click Publish.
-
----
-
-## STEP 9: Make Yourself Admin
+## STEP 8: Make Yourself Admin
 
 1. Open index.html, register your account
 2. Go to Firebase → Firestore → users collection
@@ -132,7 +136,7 @@ any member, caps uploads at 5MB, and only accepts image files. Click Publish.
 
 ---
 
-## STEP 10: Deploy to Vercel (Free)
+## STEP 9: Deploy to Vercel (Free)
 
 1. Go to vercel.com → Sign up with GitHub
 2. Upload the rccg-attendance folder to a GitHub repository
@@ -151,18 +155,32 @@ rccg-attendance/
 ├── css/
 │   └── style.css           ← All styling + motion system
 ├── js/
-│   ├── firebase-config.js  ← Firebase config lives here ONLY
-│   ├── icons.js             ← Shared icon set
-│   ├── motion.js            ← Reveal animations, confetti, toast, image upload helper
-│   └── devotionals.js       ← Daily devotional content + streak helpers
+│   ├── firebase-config.js   ← Firebase config lives here ONLY
+│   ├── cloudinary-config.js ← Cloudinary config + upload helper (profile photos)
+│   ├── icons.js              ← Shared icon set
+│   ├── motion.js             ← Reveal animations, confetti, toast, image resize helper
+│   └── devotionals.js        ← Daily devotional content + streak helpers
 ├── assets/
-│   ├── logo.png             ← RCCG crest (navbar + login)
+│   ├── logo.png              ← RCCG crest (navbar + login)
 │   └── favicon-*.png / apple-touch-icon.png
 ├── pages/
 │   ├── member.html          ← Member dashboard
 │   └── admin.html           ← Admin dashboard
 └── README.md                ← This file
 ```
+
+---
+
+## MEDIA TEAM ROLES
+
+Shown on the registration form's "Role on Media Team" dropdown:
+
+Camera Operator · Videography · Sound Engineer · Live Stream Operator ·
+Graphics & Display · Photography · Video Editor · Reels · Content Creator ·
+Content Curator · Content Strategist · Social Media · Anchor ·
+Media Director · Other
+
+To add more later, edit the `<select id="regRole">` list in `index.html`.
 
 ---
 
@@ -206,10 +224,11 @@ meeting attendance.
 
 Members can add/change their photo any time from the avatar in the top-right
 of their dashboard. Photos are cropped to a square and compressed client-side
-before upload, then stored in Firebase Storage under `profile-pictures/`.
-Admins can also update a member's photo directly from the Members tab (hover
-a member card → the small camera icon). Members without a photo simply show
-a gold initials avatar — nothing breaks if they skip it.
+before upload, then stored on **Cloudinary** (see Step 4) — Firebase Storage
+is not used, since it now requires a paid Blaze plan. Admins can also update
+a member's photo directly from the Members tab (the small camera icon on
+each card). Members without a photo simply show a gold initials avatar —
+nothing breaks if they skip it.
 
 ---
 

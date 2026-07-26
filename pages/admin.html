@@ -130,17 +130,37 @@
   <div class="toast" id="toast"></div>
 
   <script type="module">
-    import { auth, db, storage } from "../js/firebase-config.js";
+    import { auth, db } from "../js/firebase-config.js";
     import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-    import { doc, getDoc, getDocs, collection, query, where, orderBy, addDoc, updateDoc, deleteDoc, Timestamp, serverTimestamp }
+    import { doc, getDoc, getDocs, collection, query, where, orderBy, addDoc, updateDoc, deleteDoc, onSnapshot, Timestamp, serverTimestamp }
       from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
-    import { ref as storageRef, uploadBytesResumable, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
+    import { uploadToCloudinary } from "../js/cloudinary-config.js";
     import { icon } from "../js/icons.js";
     import { initReveal, staggerIn, showToast, imageToSquareBlob } from "../js/motion.js";
     import { todayKey } from "../js/devotionals.js";
 
     let allMembers=[];
     let adminUploadTargetUid = null;
+    let meetingListenerAttached = false;
+
+    async function renderOverviewMeeting(meeting) {
+      const ovEl=document.getElementById("overviewActiveMeeting");
+      if(!meeting){
+        document.getElementById("oPresentToday").textContent="—";
+        ovEl.innerHTML=`<div class="empty-state">${icon("calendar","icon-xl")}<p>No active meeting right now.</p></div>`;
+        return;
+      }
+      try {
+        const attSnap=await getDocs(query(collection(db,"attendance"),where("meetingId","==",meeting.id)));
+        document.getElementById("oPresentToday").textContent=attSnap.size;
+        let liveHtml=`<div class="table-scroll"><table class="attendance-table"><thead><tr><th>Name</th><th>In</th><th>Out</th><th>Status</th></tr></thead><tbody>`;
+        attSnap.forEach(d=>{const a=d.data();const inT=a.clockInTime?new Date(a.clockInTime.toDate()).toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"}):"—";const outT=a.clockOutTime?new Date(a.clockOutTime.toDate()).toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"}):"Still In";liveHtml+=`<tr><td><strong>${a.userName}</strong></td><td>${inT}</td><td>${outT}</td><td><span class="badge ${a.late?"badge-late":"badge-present"}">${a.late?"Late":"On Time"}</span></td></tr>`;});
+        liveHtml+=`</tbody></table></div>`;
+        ovEl.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;"><div><div style="font-family:'Cinzel',serif;font-size:18px;font-weight:700;">${meeting.title}</div><div style="font-size:13px;color:var(--white-dim);margin-top:4px;">${meeting.venue} · ${attSnap.size} present</div></div><button class="btn-decline" onclick="endMeeting('${meeting.id}')">End Meeting</button></div>${liveHtml}`;
+      } catch (err) {
+        ovEl.innerHTML = `<div class="empty-state">${icon("alert","icon-xl")}<p>Couldn't load live attendance: ${err.message}</p></div>`;
+      }
+    }
 
     document.getElementById("logoutIconBtn").innerHTML = icon("logOut");
     document.getElementById("flagIconWrap").innerHTML = icon("alert");
@@ -167,57 +187,71 @@
     };
 
     async function loadDevotionalOverview(){
-      const mSnap=await getDocs(query(collection(db,"users"),where("role","==","member")));
-      const total=mSnap.size;
-      const today=todayKey();
-      const dSnap=await getDocs(query(collection(db,"devotionalLogs"),where("date","==",today)));
-      const uniqueUsers=new Set(dSnap.docs.map(d=>d.data().userId)).size;
-      const pct = total>0 ? Math.round((uniqueUsers/total)*100) : 0;
       const el=document.getElementById("devoOverview");
-      el.innerHTML=`<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
-        <div style="flex:1;min-width:160px;">
-          <div style="height:10px;background:rgba(255,255,255,0.06);border-radius:6px;overflow:hidden;">
-            <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,var(--flame-1),var(--flame-2));border-radius:6px;transition:width .8s var(--ease-out);"></div>
+      try {
+        const mSnap=await getDocs(query(collection(db,"users"),where("role","==","member")));
+        const total=mSnap.size;
+        const today=todayKey();
+        const dSnap=await getDocs(query(collection(db,"devotionalLogs"),where("date","==",today)));
+        const uniqueUsers=new Set(dSnap.docs.map(d=>d.data().userId)).size;
+        const pct = total>0 ? Math.round((uniqueUsers/total)*100) : 0;
+        el.innerHTML=`<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+          <div style="flex:1;min-width:160px;">
+            <div style="height:10px;background:rgba(255,255,255,0.06);border-radius:6px;overflow:hidden;">
+              <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,var(--flame-1),var(--flame-2));border-radius:6px;transition:width .8s var(--ease-out);"></div>
+            </div>
+            <div style="font-size:12px;color:var(--white-dim);margin-top:8px;">${uniqueUsers} of ${total} members · ${pct}% today</div>
           </div>
-          <div style="font-size:12px;color:var(--white-dim);margin-top:8px;">${uniqueUsers} of ${total} members · ${pct}% today</div>
-        </div>
-      </div>`;
+        </div>`;
+      } catch (err) {
+        el.innerHTML = `<p style="font-size:13px;color:var(--white-dim);">Couldn't load today's devotional engagement: ${err.message}</p>`;
+      }
     }
 
     async function loadOverview(){
-      const mSnap=await getDocs(query(collection(db,"users"),where("role","==","member")));
-      document.getElementById("oTotalMembers").textContent=mSnap.size;
-      const flagged=mSnap.docs.filter(d=>(d.data().totalMissed||0)>=2);
-      document.getElementById("oFlagged").textContent=flagged.length;
-      const eSnap=await getDocs(query(collection(db,"excuses"),where("status","==","pending")));
-      document.getElementById("oPending").textContent=eSnap.size;
-      document.getElementById("excuseBadge").innerHTML = eSnap.size>0 ? `<span class="tab-count">${eSnap.size}</span>` : "";
-      await loadDevotionalOverview();
-      const aSnap=await getDocs(query(collection(db,"meetings"),where("status","==","active")));
-      const ovEl=document.getElementById("overviewActiveMeeting");
-      if(!aSnap.empty){
-        const m=aSnap.docs[0].data(),mid=aSnap.docs[0].id;
-        const attSnap=await getDocs(query(collection(db,"attendance"),where("meetingId","==",mid)));
-        document.getElementById("oPresentToday").textContent=attSnap.size;
-        let liveHtml=`<div class="table-scroll"><table class="attendance-table"><thead><tr><th>Name</th><th>In</th><th>Out</th><th>Status</th></tr></thead><tbody>`;
-        attSnap.forEach(d=>{const a=d.data();const inT=a.clockInTime?new Date(a.clockInTime.toDate()).toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"}):"—";const outT=a.clockOutTime?new Date(a.clockOutTime.toDate()).toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"}):"Still In";liveHtml+=`<tr><td><strong>${a.userName}</strong></td><td>${inT}</td><td>${outT}</td><td><span class="badge ${a.late?"badge-late":"badge-present"}">${a.late?"Late":"On Time"}</span></td></tr>`;});
-        liveHtml+=`</tbody></table></div>`;
-        ovEl.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;"><div><div style="font-family:'Cinzel',serif;font-size:18px;font-weight:700;">${m.title}</div><div style="font-size:13px;color:var(--white-dim);margin-top:4px;">${m.venue} · ${attSnap.size} present</div></div><button class="btn-decline" onclick="endMeeting('${mid}')">End Meeting</button></div>${liveHtml}`;
-      } else {
-        document.getElementById("oPresentToday").textContent="—";
-        ovEl.innerHTML=`<div class="empty-state">${icon("calendar","icon-xl")}<p>No active meeting right now.</p></div>`;
+      try {
+        const mSnap=await getDocs(query(collection(db,"users"),where("role","==","member")));
+        document.getElementById("oTotalMembers").textContent=mSnap.size;
+        const flagged=mSnap.docs.filter(d=>(d.data().totalMissed||0)>=2);
+        document.getElementById("oFlagged").textContent=flagged.length;
+        const flaggedEl=document.getElementById("flaggedList");
+        if(!flagged.length){flaggedEl.innerHTML=`<div class="empty-state">${icon("check","icon-xl")}<p>No flagged members. Everyone's showing up!</p></div>`;}
+        else{flaggedEl.innerHTML=`<div class="table-scroll"><table class="attendance-table"><thead><tr><th>Name</th><th>Role</th><th>Missed</th><th>Email</th></tr></thead><tbody>`+flagged.map(d=>{const u=d.data();return`<tr><td><strong>${u.name}</strong></td><td>${u.mediaRole||"—"}</td><td><span class="badge badge-flagged">${u.totalMissed} missed</span></td><td style="font-size:12px;color:var(--white-dim);">${u.email}</td></tr>`;}).join("")+`</tbody></table></div>`;}
+      } catch (err) {
+        document.getElementById("flaggedList").innerHTML = `<div class="empty-state">${icon("alert","icon-xl")}<p>Couldn't load members: ${err.message}</p></div>`;
       }
-      const flaggedEl=document.getElementById("flaggedList");
-      if(!flagged.length){flaggedEl.innerHTML=`<div class="empty-state">${icon("check","icon-xl")}<p>No flagged members. Everyone's showing up!</p></div>`;}
-      else{flaggedEl.innerHTML=`<div class="table-scroll"><table class="attendance-table"><thead><tr><th>Name</th><th>Role</th><th>Missed</th><th>Email</th></tr></thead><tbody>`+flagged.map(d=>{const u=d.data();return`<tr><td><strong>${u.name}</strong></td><td>${u.mediaRole||"—"}</td><td><span class="badge badge-flagged">${u.totalMissed} missed</span></td><td style="font-size:12px;color:var(--white-dim);">${u.email}</td></tr>`;}).join("")+`</tbody></table></div>`;}
+      try {
+        const eSnap=await getDocs(query(collection(db,"excuses"),where("status","==","pending")));
+        document.getElementById("oPending").textContent=eSnap.size;
+        document.getElementById("excuseBadge").innerHTML = eSnap.size>0 ? `<span class="tab-count">${eSnap.size}</span>` : "";
+      } catch (err) {
+        document.getElementById("oPending").textContent="—";
+      }
+      await loadDevotionalOverview();
+
+      // Active meeting is handled by a realtime listener (attached once, below) so
+      // it updates instantly for the admin too, without needing to reload the tab.
+      if (!meetingListenerAttached) {
+        meetingListenerAttached = true;
+        onSnapshot(query(collection(db,"meetings"),where("status","==","active")), (aSnap) => {
+          renderOverviewMeeting(aSnap.empty ? null : { id: aSnap.docs[0].id, ...aSnap.docs[0].data() });
+        }, (err) => {
+          document.getElementById("overviewActiveMeeting").innerHTML = `<div class="empty-state">${icon("alert","icon-xl")}<p>Couldn't check for a live meeting: ${err.message}</p></div>`;
+        });
+      }
+
       staggerIn(document.querySelectorAll("#tab-overview .reveal"), 70);
     }
 
     window.loadMeetings=async()=>{
-      const snap=await getDocs(query(collection(db,"meetings"),orderBy("scheduledAt","desc")));
       const el=document.getElementById("meetingsList");
-      if(snap.empty){el.innerHTML=`<div class="empty-state">${icon("calendar","icon-xl")}<p>No meetings yet.</p></div>`;return;}
-      el.innerHTML=snap.docs.map(d=>{const m=d.data();const dt=m.scheduledAt?new Date(m.scheduledAt.toDate()).toLocaleString("en-NG",{weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}):"—";const sc=m.status==="active"?"badge-present":m.status==="ended"?"badge-absent":"badge-pending";return`<div style="padding:14px 0;border-bottom:1px solid rgba(255,255,255,0.05);"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;"><div><div style="font-weight:600;font-size:14px;">${m.title}</div><div style="font-size:12px;color:var(--white-dim);margin-top:2px;">${dt} · ${m.venue||"—"}</div></div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span class="badge ${sc}">${m.status}</span>${m.status==="upcoming"?`<button class="btn-approve" onclick="activateMeeting('${d.id}')">Start</button>`:""} ${m.status==="active"?`<button class="btn-decline" onclick="endMeeting('${d.id}')">End</button>`:""} ${m.status!=="active"?`<button class="btn-decline" style="padding:5px 10px;font-size:11px;" onclick="deleteMeeting('${d.id}')">Delete</button>`:""}</div></div></div>`;}).join("");
+      try {
+        const snap=await getDocs(query(collection(db,"meetings"),orderBy("scheduledAt","desc")));
+        if(snap.empty){el.innerHTML=`<div class="empty-state">${icon("calendar","icon-xl")}<p>No meetings yet.</p></div>`;return;}
+        el.innerHTML=snap.docs.map(d=>{const m=d.data();const dt=m.scheduledAt?new Date(m.scheduledAt.toDate()).toLocaleString("en-NG",{weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}):"—";const sc=m.status==="active"?"badge-present":m.status==="ended"?"badge-absent":"badge-pending";return`<div style="padding:14px 0;border-bottom:1px solid rgba(255,255,255,0.05);"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;"><div><div style="font-weight:600;font-size:14px;">${m.title}</div><div style="font-size:12px;color:var(--white-dim);margin-top:2px;">${dt} · ${m.venue||"—"}</div></div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span class="badge ${sc}">${m.status}</span>${m.status==="upcoming"?`<button class="btn-approve" onclick="activateMeeting('${d.id}')">Start</button>`:""} ${m.status==="active"?`<button class="btn-decline" onclick="endMeeting('${d.id}')">End</button>`:""} ${m.status!=="active"?`<button class="btn-decline" style="padding:5px 10px;font-size:11px;" onclick="deleteMeeting('${d.id}')">Delete</button>`:""}</div></div></div>`;}).join("");
+      } catch (err) {
+        el.innerHTML = `<div class="empty-state">${icon("alert","icon-xl")}<p>Couldn't load meetings: ${err.message}</p></div>`;
+      }
     };
 
     window.createMeeting=async()=>{
@@ -249,10 +283,15 @@
     window.getMyLocation=()=>{if(!navigator.geolocation){showToast("Geolocation not supported.","error",icon("alert"));return;}navigator.geolocation.getCurrentPosition(p=>{document.getElementById("mLat").value=p.coords.latitude.toFixed(6);document.getElementById("mLng").value=p.coords.longitude.toFixed(6);showToast("Location captured! ✅");},()=>showToast("Could not get location.","error",icon("alert")),{enableHighAccuracy:true});};
 
     window.loadMembers=async()=>{
-      const snap=await getDocs(query(collection(db,"users"),where("role","==","member"),orderBy("name")));
-      allMembers=snap.docs.map(d=>({id:d.id,...d.data()}));
-      renderMembersGrid(allMembers);
-      document.getElementById("membersSubtitle").textContent=`${allMembers.length} member${allMembers.length!==1?"s":""} total`;
+      try {
+        const snap=await getDocs(query(collection(db,"users"),where("role","==","member")));
+        allMembers=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>a.name.localeCompare(b.name));
+        renderMembersGrid(allMembers);
+        document.getElementById("membersSubtitle").textContent=`${allMembers.length} member${allMembers.length!==1?"s":""} total`;
+      } catch (err) {
+        document.getElementById("membersGrid").innerHTML = `<div class="empty-state">${icon("alert","icon-xl")}<p>Couldn't load members: ${err.message}</p></div>`;
+        document.getElementById("membersSubtitle").textContent = "Couldn't load";
+      }
     };
 
     function renderMembersGrid(members){
@@ -271,36 +310,41 @@
       try{
         showToast("Uploading photo…");
         const blob = await imageToSquareBlob(file, 480, 0.86);
-        const sRef = storageRef(storage, `profile-pictures/${uid}.jpg`);
-        const task = uploadBytesResumable(sRef, blob, { contentType: "image/jpeg" });
-        task.on("state_changed", ()=>{}, ()=>{ showToast("Upload failed.","error",icon("alert")); }, async ()=>{
-          const url = await getDownloadURL(sRef);
-          await updateDoc(doc(db,"users",uid), { photoURL: url });
-          const m = allMembers.find(m=>m.id===uid);
-          if(m) m.photoURL = url;
-          renderMembersGrid(allMembers);
-          showToast("Member photo updated!","success",icon("check"));
-        });
-      }catch(err){ showToast("Couldn't process that image.","error",icon("alert")); }
+        const url = await uploadToCloudinary(blob);
+        await updateDoc(doc(db,"users",uid), { photoURL: url });
+        const m = allMembers.find(m=>m.id===uid);
+        if(m) m.photoURL = url;
+        renderMembersGrid(allMembers);
+        showToast("Member photo updated!","success",icon("check"));
+      }catch(err){ showToast(err.message || "Couldn't upload that image.","error",icon("alert")); }
       e.target.value = "";
       adminUploadTargetUid = null;
     });
 
     window.loadExcuses=async()=>{
-      const snap=await getDocs(query(collection(db,"excuses"),orderBy("submittedAt","desc")));
       const el=document.getElementById("excusesList");
-      if(snap.empty){el.innerHTML=`<div class="empty-state">${icon("clipboard","icon-xl")}<p>No excuse requests.</p></div>`;return;}
-      el.innerHTML=snap.docs.map(d=>{const e=d.data();const initials=e.userName?e.userName.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase():"?";const date=e.submittedAt?new Date(e.submittedAt.toDate()).toLocaleDateString("en-NG",{day:"numeric",month:"short",year:"numeric"}):"—";const sc=e.status==="pending"?"badge-pending":e.status==="approved"?"badge-present":"badge-absent";return`<div class="excuse-request"><div class="avatar excuse-req-avatar">${initials}</div><div class="excuse-req-body"><div class="excuse-req-name">${e.userName}</div><div class="excuse-req-meeting">${e.meetingTitle} · Submitted ${date}</div><div class="excuse-req-reason">${e.reason}</div><div style="margin-top:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;"><span class="badge ${sc}">${e.status}</span>${e.status==="pending"?`<div class="excuse-req-actions"><button class="btn-approve" onclick="reviewExcuse('${d.id}','${e.userId}','approved')">Approve</button><button class="btn-decline" onclick="reviewExcuse('${d.id}','${e.userId}','declined')">Decline</button></div>`:""}</div></div></div>`;}).join("");
+      try {
+        const snap=await getDocs(query(collection(db,"excuses"),orderBy("submittedAt","desc")));
+        if(snap.empty){el.innerHTML=`<div class="empty-state">${icon("clipboard","icon-xl")}<p>No excuse requests.</p></div>`;return;}
+        el.innerHTML=snap.docs.map(d=>{const e=d.data();const initials=e.userName?e.userName.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase():"?";const date=e.submittedAt?new Date(e.submittedAt.toDate()).toLocaleDateString("en-NG",{day:"numeric",month:"short",year:"numeric"}):"—";const sc=e.status==="pending"?"badge-pending":e.status==="approved"?"badge-present":"badge-absent";return`<div class="excuse-request"><div class="avatar excuse-req-avatar">${initials}</div><div class="excuse-req-body"><div class="excuse-req-name">${e.userName}</div><div class="excuse-req-meeting">${e.meetingTitle} · Submitted ${date}</div><div class="excuse-req-reason">${e.reason}</div><div style="margin-top:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;"><span class="badge ${sc}">${e.status}</span>${e.status==="pending"?`<div class="excuse-req-actions"><button class="btn-approve" onclick="reviewExcuse('${d.id}','${e.userId}','approved')">Approve</button><button class="btn-decline" onclick="reviewExcuse('${d.id}','${e.userId}','declined')">Decline</button></div>`:""}</div></div></div>`;}).join("");
+      } catch (err) {
+        el.innerHTML = `<div class="empty-state">${icon("alert","icon-xl")}<p>Couldn't load excuses: ${err.message}</p></div>`;
+      }
     };
 
     window.reviewExcuse=async(excuseId,userId,decision)=>{await updateDoc(doc(db,"excuses",excuseId),{status:decision,reviewedAt:serverTimestamp()});showToast(`Excuse ${decision}. `+(decision==="approved"?"Won't count as missed.":"Will count as absent."));loadExcuses();loadOverview();};
 
     window.loadLeaderboard=async()=>{
-      const snap=await getDocs(query(collection(db,"users"),where("role","==","member"),orderBy("points","desc")));
       const el=document.getElementById("leaderboardList");
-      if(snap.empty){el.innerHTML=`<div class="empty-state">${icon("trophy","icon-xl")}<p>No data yet.</p></div>`;return;}
-      const rC=["gold-rank","silver-rank","bronze-rank"],rI=["🥇","🥈","🥉"];
-      el.innerHTML=snap.docs.map((d,i)=>{const u=d.data();return`<li class="leaderboard-item"><div class="lb-rank ${rC[i]||""}">${i<3?rI[i]:`${i+1}`}</div><div class="avatar lb-avatar">${avatarHTML(u)}</div><div style="flex:1;min-width:0;"><div class="lb-name">${u.name}</div><div class="lb-role">${u.mediaRole||"Member"} · Streak: ${u.streak||0} 🔥 · Word: ${u.devotionalStreak||0}🕯️</div></div><div class="lb-points">${u.points||0} pts</div></li>`;}).join("");
+      try {
+        const snap=await getDocs(query(collection(db,"users"),where("role","==","member")));
+        const members=snap.docs.map(d=>d.data()).sort((a,b)=>(b.points||0)-(a.points||0));
+        if(!members.length){el.innerHTML=`<div class="empty-state">${icon("trophy","icon-xl")}<p>No data yet.</p></div>`;return;}
+        const rC=["gold-rank","silver-rank","bronze-rank"],rI=["🥇","🥈","🥉"];
+        el.innerHTML=members.map((u,i)=>`<li class="leaderboard-item"><div class="lb-rank ${rC[i]||""}">${i<3?rI[i]:`${i+1}`}</div><div class="avatar lb-avatar">${avatarHTML(u)}</div><div style="flex:1;min-width:0;"><div class="lb-name">${u.name}</div><div class="lb-role">${u.mediaRole||"Member"} · Streak: ${u.streak||0} 🔥 · Word: ${u.devotionalStreak||0}🕯️</div></div><div class="lb-points">${u.points||0} pts</div></li>`).join("");
+      } catch (err) {
+        el.innerHTML = `<div class="empty-state">${icon("alert","icon-xl")}<p>Couldn't load leaderboard: ${err.message}</p></div>`;
+      }
     };
 
     window.handleLogout=async()=>{await signOut(auth);window.location.href="../index.html";};

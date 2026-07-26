@@ -146,17 +146,49 @@
   <div class="toast" id="toast"></div>
 
   <script type="module">
-    import { auth, db, storage } from "../js/firebase-config.js";
+    import { auth, db } from "../js/firebase-config.js";
     import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-    import { doc, getDoc, getDocs, collection, query, where, orderBy, addDoc, updateDoc, Timestamp, serverTimestamp }
+    import { doc, getDoc, getDocs, collection, query, where, orderBy, addDoc, updateDoc, onSnapshot, Timestamp, serverTimestamp }
       from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
-    import { ref as storageRef, uploadBytesResumable, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
+    import { uploadToCloudinary } from "../js/cloudinary-config.js";
     import { icon } from "../js/icons.js";
     import { initReveal, staggerIn, confettiBurst, showToast, imageToSquareBlob, openModal, closeModal } from "../js/motion.js";
     import { getTodayDevotional, todayKey, DEVOTIONAL_BADGES } from "../js/devotionals.js";
 
     let currentUser = null, currentUserData = null, activeMeeting = null, myClockRecord = null;
     let devotionalDoneToday = false;
+    let meetingListenerAttached = false;
+
+    async function renderActiveMeeting(meeting) {
+      if (!meeting) {
+        activeMeeting = null;
+        myClockRecord = null;
+        document.getElementById("noMeetingMsg").classList.remove("hidden");
+        document.getElementById("activeMeetingSection").classList.add("hidden");
+        return;
+      }
+      activeMeeting = meeting;
+      document.getElementById("noMeetingMsg").classList.add("hidden");
+      document.getElementById("activeMeetingSection").classList.remove("hidden");
+      document.getElementById("activeMeetingName").textContent = activeMeeting.title;
+      const st = activeMeeting.scheduledAt.toDate();
+      document.getElementById("activeMeetingMeta").textContent = `${st.toLocaleDateString("en-NG",{weekday:"long",day:"numeric",month:"long"})} · ${st.toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"})}`;
+      const btn = document.getElementById("clockInBtn");
+      btn.classList.remove("active"); btn.disabled = false;
+      document.getElementById("clockBtnText").textContent = "Clock In";
+      document.getElementById("clockStatus").textContent = "";
+      try {
+        const crQ = query(collection(db,"attendance"), where("meetingId","==",activeMeeting.id), where("userId","==",currentUser.uid));
+        const crSnap = await getDocs(crQ);
+        if (!crSnap.empty) {
+          myClockRecord = { id: crSnap.docs[0].id, ...crSnap.docs[0].data() };
+          if (myClockRecord.clockOutTime) { document.getElementById("clockBtnText").textContent = "Clocked Out"; btn.disabled = true; document.getElementById("clockStatus").textContent = "You've completed this meeting."; }
+          else { btn.classList.add("active"); document.getElementById("clockBtnText").textContent = "Clock Out"; document.getElementById("clockStatus").textContent = "You're checked in. Click to clock out when done."; }
+        }
+      } catch (err) {
+        document.getElementById("clockStatus").textContent = `Couldn't check your status: ${err.message}`;
+      }
+    }
 
     // ---------- icon injection ----------
     document.getElementById("logoutIconBtn").innerHTML = icon("logOut");
@@ -233,26 +265,16 @@
         document.getElementById("navAvatar").innerHTML = `<img src="${localUrl}" alt="preview"/>`;
         progressWrap.classList.remove("hidden");
         hint.textContent = "Uploading…";
-        const sRef = storageRef(storage, `profile-pictures/${currentUser.uid}.jpg`);
-        const task = uploadBytesResumable(sRef, blob, { contentType: "image/jpeg" });
-        task.on("state_changed", (snap) => {
-          const pct = Math.round((snap.bytesTransferred / snap.totalBytes) * 100);
-          progressBar.style.width = pct + "%";
-        }, (err) => {
-          hint.textContent = "Upload failed. Try again.";
-          progressWrap.classList.add("hidden");
-          showToast("Photo upload failed.", "error", icon("alert"));
-        }, async () => {
-          const url = await getDownloadURL(sRef);
-          await updateDoc(doc(db, "users", currentUser.uid), { photoURL: url });
-          currentUserData.photoURL = url;
-          progressWrap.classList.add("hidden");
-          hint.textContent = "JPG or PNG. We'll crop it to a square automatically.";
-          showToast("Profile photo updated!", "success", icon("check"));
-        });
+        const url = await uploadToCloudinary(blob, (pct) => { progressBar.style.width = pct + "%"; });
+        await updateDoc(doc(db, "users", currentUser.uid), { photoURL: url });
+        currentUserData.photoURL = url;
+        progressWrap.classList.add("hidden");
+        hint.textContent = "JPG or PNG. We'll crop it to a square automatically.";
+        showToast("Profile photo updated!", "success", icon("check"));
       } catch (err) {
-        hint.textContent = "Couldn't process that image. Try another.";
-        showToast("Couldn't process that image.", "error", icon("alert"));
+        progressWrap.classList.add("hidden");
+        hint.textContent = err.message || "Couldn't upload that image. Try another.";
+        showToast(err.message || "Couldn't upload photo.", "error", icon("alert"));
       }
     });
 
@@ -381,55 +403,60 @@
       renderRank(currentUserData.points||0);
       renderBadges(currentUserData);
 
-      // devotional
+      // ---- devotional (always renders text locally; Firestore only checks today's log) ----
       const devo = getTodayDevotional();
       document.getElementById("devoRef").textContent = `${devo.theme} · ${devo.ref}`;
       document.getElementById("devoText").textContent = devo.text;
       document.getElementById("flameCount").textContent = currentUserData.devotionalStreak || 0;
-      const today = todayKey();
-      const devoQ = query(collection(db,"devotionalLogs"), where("userId","==",currentUser.uid), where("date","==",today));
-      const devoSnap = await getDocs(devoQ);
-      if (!devoSnap.empty) {
-        devotionalDoneToday = true;
-        document.getElementById("devoBtnIcon").innerHTML = icon("check");
-        document.getElementById("devoBtnText").textContent = "Read Today — see you tomorrow";
-        document.getElementById("devoBtn").disabled = true;
-      }
-
-      const activeQ=query(collection(db,"meetings"),where("status","==","active"));
-      const activeSnap=await getDocs(activeQ);
-      if(!activeSnap.empty){
-        activeMeeting={id:activeSnap.docs[0].id,...activeSnap.docs[0].data()};
-        document.getElementById("noMeetingMsg").classList.add("hidden");
-        document.getElementById("activeMeetingSection").classList.remove("hidden");
-        document.getElementById("activeMeetingName").textContent=activeMeeting.title;
-        const st=activeMeeting.scheduledAt.toDate();
-        document.getElementById("activeMeetingMeta").textContent=`${st.toLocaleDateString("en-NG",{weekday:"long",day:"numeric",month:"long"})} · ${st.toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"})}`;
-        const crQ=query(collection(db,"attendance"),where("meetingId","==",activeMeeting.id),where("userId","==",currentUser.uid));
-        const crSnap=await getDocs(crQ);
-        if(!crSnap.empty){
-          myClockRecord={id:crSnap.docs[0].id,...crSnap.docs[0].data()};
-          const btn=document.getElementById("clockInBtn");
-          if(myClockRecord.clockOutTime){document.getElementById("clockBtnText").textContent="Clocked Out";btn.disabled=true;document.getElementById("clockStatus").textContent="You've completed this meeting.";}
-          else{btn.classList.add("active");document.getElementById("clockBtnText").textContent="Clock Out";document.getElementById("clockStatus").textContent="You're checked in. Click to clock out when done.";}
+      try {
+        const today = todayKey();
+        const devoQ = query(collection(db,"devotionalLogs"), where("userId","==",currentUser.uid), where("date","==",today));
+        const devoSnap = await getDocs(devoQ);
+        if (!devoSnap.empty) {
+          devotionalDoneToday = true;
+          document.getElementById("devoBtnIcon").innerHTML = icon("check");
+          document.getElementById("devoBtnText").textContent = "Read Today — see you tomorrow";
+          document.getElementById("devoBtn").disabled = true;
         }
+      } catch (err) {
+        console.error("Devotional status check failed:", err);
       }
 
-      const upQ=query(collection(db,"meetings"),where("status","==","upcoming"),orderBy("scheduledAt","asc"));
-      const upSnap=await getDocs(upQ);
-      const sel=document.getElementById("excuseMeetingSelect");
-      sel.innerHTML='<option value="">Select upcoming meeting</option>';
-      upSnap.forEach(d=>{const m=d.data();const o=document.createElement("option");o.value=d.id;o.textContent=`${m.title} — ${new Date(m.scheduledAt.toDate()).toLocaleDateString("en-NG",{weekday:"short",day:"numeric",month:"short"})}`;sel.appendChild(o);});
+      // ---- active meeting: realtime, so a meeting the admin starts appears without a refresh ----
+      if (!meetingListenerAttached) {
+        meetingListenerAttached = true;
+        onSnapshot(query(collection(db,"meetings"), where("status","==","active")), (activeSnap) => {
+          renderActiveMeeting(activeSnap.empty ? null : { id: activeSnap.docs[0].id, ...activeSnap.docs[0].data() });
+        }, (err) => {
+          document.getElementById("noMeetingMsg").querySelector("p").textContent = `Couldn't check for a live meeting: ${err.message}`;
+        });
+      }
 
-      const hQ=query(collection(db,"attendance"),where("userId","==",currentUser.uid),orderBy("clockInTime","desc"));
-      const hSnap=await getDocs(hQ);
+      // ---- upcoming meetings for the excuse dropdown (sorted client-side — no composite index needed) ----
+      try {
+        const upSnap=await getDocs(query(collection(db,"meetings"),where("status","==","upcoming")));
+        const upcoming = upSnap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>a.scheduledAt.toMillis()-b.scheduledAt.toMillis());
+        const sel=document.getElementById("excuseMeetingSelect");
+        sel.innerHTML='<option value="">Select upcoming meeting</option>';
+        upcoming.forEach(m=>{const o=document.createElement("option");o.value=m.id;o.textContent=`${m.title} — ${new Date(m.scheduledAt.toDate()).toLocaleDateString("en-NG",{weekday:"short",day:"numeric",month:"short"})}`;sel.appendChild(o);});
+      } catch (err) {
+        showToast("Couldn't load upcoming meetings.", "error", icon("alert"));
+      }
+
+      // ---- attendance history (sorted client-side — no composite index needed) ----
       const list=document.getElementById("historyList");
-      if(hSnap.empty){list.innerHTML=`<div class="empty-state">${icon("clipboard","icon-xl")}<p>No records yet.</p></div>`;}
-      else{
-        let html=`<div class="table-scroll"><table class="attendance-table"><thead><tr><th>Meeting</th><th>Date</th><th>In</th><th>Out</th><th>Status</th></tr></thead><tbody>`;
-        hSnap.forEach(d=>{const r=d.data();const dateStr=r.clockInTime?new Date(r.clockInTime.toDate()).toLocaleDateString("en-NG",{day:"numeric",month:"short"}):"—";const inStr=r.clockInTime?new Date(r.clockInTime.toDate()).toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"}):"—";const outStr=r.clockOutTime?new Date(r.clockOutTime.toDate()).toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"}):"—";html+=`<tr><td>${r.meetingTitle||"—"}</td><td>${dateStr}</td><td>${inStr}</td><td>${outStr}</td><td><span class="badge ${r.late?"badge-late":"badge-present"}">${r.late?"Late":"Present"}</span></td></tr>`;});
-        html+=`</tbody></table></div>`;
-        list.innerHTML=html;
+      try {
+        const hSnap=await getDocs(query(collection(db,"attendance"),where("userId","==",currentUser.uid)));
+        const records = hSnap.docs.map(d=>d.data()).sort((a,b)=>(b.clockInTime?.toMillis()||0)-(a.clockInTime?.toMillis()||0));
+        if(!records.length){list.innerHTML=`<div class="empty-state">${icon("clipboard","icon-xl")}<p>No records yet.</p></div>`;}
+        else{
+          let html=`<div class="table-scroll"><table class="attendance-table"><thead><tr><th>Meeting</th><th>Date</th><th>In</th><th>Out</th><th>Status</th></tr></thead><tbody>`;
+          records.forEach(r=>{const dateStr=r.clockInTime?new Date(r.clockInTime.toDate()).toLocaleDateString("en-NG",{day:"numeric",month:"short"}):"—";const inStr=r.clockInTime?new Date(r.clockInTime.toDate()).toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"}):"—";const outStr=r.clockOutTime?new Date(r.clockOutTime.toDate()).toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"}):"—";html+=`<tr><td>${r.meetingTitle||"—"}</td><td>${dateStr}</td><td>${inStr}</td><td>${outStr}</td><td><span class="badge ${r.late?"badge-late":"badge-present"}">${r.late?"Late":"Present"}</span></td></tr>`;});
+          html+=`</tbody></table></div>`;
+          list.innerHTML=html;
+        }
+      } catch (err) {
+        list.innerHTML = `<div class="empty-state">${icon("alert","icon-xl")}<p>Couldn't load history: ${err.message}</p></div>`;
       }
 
       staggerIn(document.querySelectorAll(".reveal"), 70);
