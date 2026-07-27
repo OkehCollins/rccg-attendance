@@ -135,6 +135,7 @@
     import { doc, getDoc, getDocs, collection, query, where, orderBy, addDoc, updateDoc, deleteDoc, onSnapshot, Timestamp, serverTimestamp }
       from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
     import { uploadToCloudinary } from "../js/cloudinary-config.js";
+    import { sendEmailAlert } from "../js/emailjs-config.js";
     import { icon } from "../js/icons.js";
     import { initReveal, staggerIn, showToast, imageToSquareBlob } from "../js/motion.js";
     import { todayKey } from "../js/devotionals.js";
@@ -142,6 +143,10 @@
     let allMembers=[];
     let adminUploadTargetUid = null;
     let meetingListenerAttached = false;
+    let excuseListenerAttached = false;
+    let flaggedListenerAttached = false;
+    let seenExcuseIds = null;   // null = "haven't seen a snapshot yet" — guards against toasting for pre-existing data on first load
+    let seenFlaggedIds = null;
 
     async function renderOverviewMeeting(meeting) {
       const ovEl=document.getElementById("overviewActiveMeeting");
@@ -209,24 +214,56 @@
     }
 
     async function loadOverview(){
-      try {
-        const mSnap=await getDocs(query(collection(db,"users"),where("role","==","member")));
-        document.getElementById("oTotalMembers").textContent=mSnap.size;
-        const flagged=mSnap.docs.filter(d=>(d.data().totalMissed||0)>=2);
-        document.getElementById("oFlagged").textContent=flagged.length;
-        const flaggedEl=document.getElementById("flaggedList");
-        if(!flagged.length){flaggedEl.innerHTML=`<div class="empty-state">${icon("check","icon-xl")}<p>No flagged members. Everyone's showing up!</p></div>`;}
-        else{flaggedEl.innerHTML=`<div class="table-scroll"><table class="attendance-table"><thead><tr><th>Name</th><th>Role</th><th>Missed</th><th>Email</th></tr></thead><tbody>`+flagged.map(d=>{const u=d.data();return`<tr><td><strong>${u.name}</strong></td><td>${u.mediaRole||"—"}</td><td><span class="badge badge-flagged">${u.totalMissed} missed</span></td><td style="font-size:12px;color:var(--white-dim);">${u.email}</td></tr>`;}).join("")+`</tbody></table></div>`;}
-      } catch (err) {
-        document.getElementById("flaggedList").innerHTML = `<div class="empty-state">${icon("alert","icon-xl")}<p>Couldn't load members: ${err.message}</p></div>`;
+      // Members + flagged list: realtime, so a newly-flagged member (2+ missed)
+      // shows up — and toasts — the instant it happens, not just on tab reload.
+      if (!flaggedListenerAttached) {
+        flaggedListenerAttached = true;
+        onSnapshot(query(collection(db,"users"),where("role","==","member")), (mSnap) => {
+          document.getElementById("oTotalMembers").textContent=mSnap.size;
+          const flagged=mSnap.docs.filter(d=>(d.data().totalMissed||0)>=2);
+          document.getElementById("oFlagged").textContent=flagged.length;
+          const flaggedEl=document.getElementById("flaggedList");
+          if(!flagged.length){flaggedEl.innerHTML=`<div class="empty-state">${icon("check","icon-xl")}<p>No flagged members. Everyone's showing up!</p></div>`;}
+          else{flaggedEl.innerHTML=`<div class="table-scroll"><table class="attendance-table"><thead><tr><th>Name</th><th>Role</th><th>Missed</th><th>Email</th></tr></thead><tbody>`+flagged.map(d=>{const u=d.data();return`<tr><td><strong>${u.name}</strong></td><td>${u.mediaRole||"—"}</td><td><span class="badge badge-flagged">${u.totalMissed} missed</span></td><td style="font-size:12px;color:var(--white-dim);">${u.email}</td></tr>`;}).join("")+`</tbody></table></div>`;}
+
+          const currentFlaggedIds = new Set(flagged.map(d=>d.id));
+          if (seenFlaggedIds !== null) {
+            flagged.forEach(d => {
+              if (!seenFlaggedIds.has(d.id)) {
+                showToast(`${d.data().name} just crossed 2 missed meetings`, "error", icon("alert"));
+              }
+            });
+          }
+          seenFlaggedIds = currentFlaggedIds;
+        }, (err) => {
+          document.getElementById("flaggedList").innerHTML = `<div class="empty-state">${icon("alert","icon-xl")}<p>Couldn't load members: ${err.message}</p></div>`;
+        });
       }
-      try {
-        const eSnap=await getDocs(query(collection(db,"excuses"),where("status","==","pending")));
-        document.getElementById("oPending").textContent=eSnap.size;
-        document.getElementById("excuseBadge").innerHTML = eSnap.size>0 ? `<span class="tab-count">${eSnap.size}</span>` : "";
-      } catch (err) {
-        document.getElementById("oPending").textContent="—";
+
+      // Pending excuses: realtime, so a new excuse request toasts immediately
+      // and the tab badge count is always current.
+      if (!excuseListenerAttached) {
+        excuseListenerAttached = true;
+        onSnapshot(query(collection(db,"excuses"),where("status","==","pending")), (eSnap) => {
+          document.getElementById("oPending").textContent=eSnap.size;
+          document.getElementById("excuseBadge").innerHTML = eSnap.size>0 ? `<span class="tab-count">${eSnap.size}</span>` : "";
+
+          const currentExcuseIds = new Set(eSnap.docs.map(d=>d.id));
+          if (seenExcuseIds !== null) {
+            eSnap.docs.forEach(d => {
+              if (!seenExcuseIds.has(d.id)) {
+                showToast(`New excuse request from ${d.data().userName}`, "success", icon("mail"));
+              }
+            });
+            // If the Excuses tab happens to be open right now, refresh it live too.
+            if (!document.getElementById("tab-excuses").classList.contains("hidden")) loadExcuses();
+          }
+          seenExcuseIds = currentExcuseIds;
+        }, (err) => {
+          document.getElementById("oPending").textContent="—";
+        });
       }
+
       await loadDevotionalOverview();
 
       // Active meeting is handled by a realtime listener (attached once, below) so
@@ -275,7 +312,26 @@
       const mSnap=await getDocs(query(collection(db,"users"),where("role","==","member")));
       const attSnap=await getDocs(query(collection(db,"attendance"),where("meetingId","==",id)));
       const attendedIds=new Set(attSnap.docs.map(d=>d.data().userId));
-      for(const m of mSnap.docs){const uid=m.id,udata=m.data();if(!attendedIds.has(uid)){const exSnap=await getDocs(query(collection(db,"excuses"),where("userId","==",uid),where("meetingId","==",id),where("status","==","approved")));if(exSnap.empty)await updateDoc(doc(db,"users",uid),{totalMissed:(udata.totalMissed||0)+1,streak:0});}}
+      const newlyFlagged = [];
+      for(const m of mSnap.docs){
+        const uid=m.id,udata=m.data();
+        if(!attendedIds.has(uid)){
+          const exSnap=await getDocs(query(collection(db,"excuses"),where("userId","==",uid),where("meetingId","==",id),where("status","==","approved")));
+          if(exSnap.empty){
+            const newTotalMissed = (udata.totalMissed||0)+1;
+            await updateDoc(doc(db,"users",uid),{totalMissed:newTotalMissed,streak:0});
+            // Email only on the exact moment someone crosses into "flagged" —
+            // not on every subsequent miss, so a chronic absentee doesn't spam the inbox.
+            if(newTotalMissed===2) newlyFlagged.push(udata.name);
+          }
+        }
+      }
+      if(newlyFlagged.length){
+        sendEmailAlert(
+          newlyFlagged.length===1 ? `${newlyFlagged[0]} has been flagged` : `${newlyFlagged.length} members have been flagged`,
+          `The following member${newlyFlagged.length===1?"":"s"} just crossed 2 missed meetings without an approved excuse:\n\n${newlyFlagged.map(n=>"• "+n).join("\n")}\n\nSee the Overview tab in the admin dashboard for details.`
+        );
+      }
       showToast("Meeting ended. Absences recorded."); loadMeetings(); loadOverview();
     };
 
@@ -358,6 +414,22 @@
       document.getElementById("navName").textContent=u.name;
       await loadOverview();
     });
+
+    // Let the admin know when their connection drops or comes back — starting/
+    // ending meetings and reviewing excuses both need a live connection.
+    window.addEventListener("offline", () => showToast("You're offline. Changes won't save until you reconnect.", "error", icon("alert")));
+    window.addEventListener("online", () => showToast("Back online.", "success", icon("check")));
+  </script>
+
+  <script>
+    // Register the service worker so the app can install and work offline.
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("/sw.js").catch((err) => {
+          console.warn("Service worker registration failed:", err);
+        });
+      });
+    }
   </script>
 </body>
 </html>

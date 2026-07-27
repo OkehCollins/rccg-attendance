@@ -151,6 +151,7 @@
     import { doc, getDoc, getDocs, collection, query, where, orderBy, addDoc, updateDoc, onSnapshot, Timestamp, serverTimestamp }
       from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
     import { uploadToCloudinary } from "../js/cloudinary-config.js";
+    import { sendEmailAlert } from "../js/emailjs-config.js";
     import { icon } from "../js/icons.js";
     import { initReveal, staggerIn, confettiBurst, showToast, imageToSquareBlob, openModal, closeModal } from "../js/motion.js";
     import { getTodayDevotional, todayKey, DEVOTIONAL_BADGES } from "../js/devotionals.js";
@@ -377,9 +378,15 @@
       const q=query(collection(db,"excuses"),where("userId","==",currentUser.uid),where("meetingId","==",meetingId));
       const ex=await getDocs(q);
       if(!ex.empty){showToast("Already submitted an excuse for this meeting.","error",icon("alert"));return;}
-      await addDoc(collection(db,"excuses"),{userId:currentUser.uid,userName:currentUserData.name,meetingId,meetingTitle:document.getElementById("excuseMeetingSelect").selectedOptions[0].text,reason,status:"pending",submittedAt:serverTimestamp()});
+      const meetingTitle = document.getElementById("excuseMeetingSelect").selectedOptions[0].text;
+      await addDoc(collection(db,"excuses"),{userId:currentUser.uid,userName:currentUserData.name,meetingId,meetingTitle,reason,status:"pending",submittedAt:serverTimestamp()});
       document.getElementById("excuseReason").value=""; document.getElementById("excuseMeetingSelect").value="";
       showToast("Excuse submitted. Waiting for admin approval.");
+      // Fire-and-forget: don't let a slow/failed email delay the member's confirmation.
+      sendEmailAlert(
+        `Excuse request — ${currentUserData.name}`,
+        `${currentUserData.name} has submitted an excuse for "${meetingTitle}".\n\nReason given:\n${reason}\n\nReview and approve or decline it from the Excuses tab in the admin dashboard.`
+      );
     };
 
     window.handleLogout = async () => { await signOut(auth); window.location.href="../index.html"; };
@@ -461,6 +468,22 @@
 
       staggerIn(document.querySelectorAll(".reveal"), 70);
     });
+
+    // Let members know when their connection drops or comes back — clock-in
+    // and live meeting status both need a live connection to work correctly.
+    window.addEventListener("offline", () => showToast("You're offline. Clock-in and live updates won't work until you reconnect.", "error", icon("alert")));
+    window.addEventListener("online", () => showToast("Back online.", "success", icon("check")));
+  </script>
+
+  <script>
+    // Register the service worker so the app can install and work offline.
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("/sw.js").catch((err) => {
+          console.warn("Service worker registration failed:", err);
+        });
+      });
+    }
   </script>
 </body>
 </html>
