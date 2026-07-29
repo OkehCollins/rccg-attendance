@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
-  <title>Admin Dashboard — Champions Cathedral Media Team</title>
+  <title>Admin Dashboard — Champions Cathedral</title>
   <meta name="theme-color" content="#0A1628"/>
 
   <link rel="icon" href="../favicon.ico" sizes="any"/>
@@ -19,12 +19,12 @@
   <nav class="navbar">
     <div class="nav-brand">
       <img class="nav-brand-logo" src="../assets/logo.png" alt="Champions Cathedral crest"/>
-      <div class="nav-brand-text"><div class="nav-brand-name">Champions Cathedral</div><div class="nav-brand-sub">Admin Dashboard</div></div>
+      <div class="nav-brand-text"><div class="nav-brand-name">Champions Cathedral</div><div class="nav-brand-sub" id="navBrandSub">Admin Dashboard</div></div>
     </div>
     <div class="nav-right">
       <div class="nav-user">
         <div class="avatar nav-avatar" id="navAvatar">A</div>
-        <div><div class="nav-user-name" id="navName">Admin</div><div class="nav-user-role"><span class="badge badge-admin">Admin</span></div></div>
+        <div><div class="nav-user-name" id="navName">Admin</div><div class="nav-user-role"><span class="badge badge-admin" id="navRoleBadge">Admin</span></div></div>
       </div>
       <button class="btn-logout" onclick="handleLogout()" id="logoutIconBtn" aria-label="Sign out"></button>
     </div>
@@ -32,7 +32,17 @@
 
   <main class="main-content">
     <div class="page-header">
-      <div><h1>Admin Dashboard</h1><p>Manage meetings, review attendance, and take care of your team.</p></div>
+      <div><h1>Admin Dashboard</h1><p id="pageHeaderSub">Manage meetings, review attendance, and take care of your people.</p></div>
+    </div>
+
+    <!-- Super admin only: scope everything below to one department, or view the whole church -->
+    <div class="card reveal hidden" id="deptFilterCard" style="padding:14px 20px;margin-bottom:20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+      <label style="font-size:12px;font-weight:600;color:var(--white-dim);text-transform:uppercase;letter-spacing:.08em;">Viewing</label>
+      <select id="deptFilter" onchange="onDeptFilterChange()" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:8px 14px;color:var(--white);font-family:Inter,sans-serif;font-size:13px;outline:none;">
+        <option value="">All Departments</option>
+        <option value="congregation">Congregation-wide (Services)</option>
+      </select>
+      <span style="font-size:12px;color:var(--white-dim);">Applies to Meetings, Members, Excuses &amp; Leaderboard. Overview's live alerts always cover the whole church.</span>
     </div>
 
     <div class="tabs">
@@ -41,6 +51,8 @@
       <button class="tab" onclick="switchTab('members')" data-tab="members">Members</button>
       <button class="tab" onclick="switchTab('excuses')" data-tab="excuses">Excuses <span id="excuseBadge"></span></button>
       <button class="tab" onclick="switchTab('leaderboard')" data-tab="leaderboard">Leaderboard</button>
+      <button class="tab" onclick="switchTab('announcements')" data-tab="announcements">Announcements</button>
+      <button class="tab hidden" onclick="switchTab('departments')" data-tab="departments" id="departmentsTabBtn">Departments</button>
     </div>
 
     <!-- OVERVIEW -->
@@ -59,13 +71,13 @@
       </div>
       <div class="card reveal">
         <div class="card-header">
-          <div><div class="card-title">Active Meeting</div><div class="card-title-sub">Live attendance right now</div></div>
+          <div><div class="card-title">Active Meetings</div><div class="card-title-sub">Live attendance right now — church-wide and department</div></div>
           <button class="btn-primary" style="width:auto;padding:9px 18px;font-size:13px;" onclick="switchTab('meetings')">Manage Meetings</button>
         </div>
         <div id="overviewActiveMeeting"><div class="empty-state">Loading…</div></div>
       </div>
       <div class="card reveal">
-        <div class="card-header"><div><div class="card-title"><span id="flagIconWrap"></span> Flagged Members</div><div class="card-title-sub">Members with 2 or more unexcused absences</div></div></div>
+        <div class="card-header"><div><div class="card-title"><span id="flagIconWrap"></span> Flagged Members</div><div class="card-title-sub">Members with 2 or more unexcused absences, church-wide</div></div></div>
         <div id="flaggedList"><div class="empty-state">Loading…</div></div>
       </div>
     </div>
@@ -76,7 +88,13 @@
         <div class="card reveal">
           <div class="card-header"><div><div class="card-title">Schedule a Meeting</div></div></div>
           <div class="meeting-form">
-            <div class="full"><label>Meeting Title</label><input type="text" id="mTitle" placeholder="e.g. Sunday Service Media Rehearsal"/></div>
+            <div class="full" id="meetingScopeGroup">
+              <label>This meeting is for</label>
+              <select id="mScope" onchange="onMeetingScopeChange()">
+                <option value="congregation">Congregation-wide (Service — everyone checks in)</option>
+              </select>
+            </div>
+            <div class="full"><label>Meeting Title</label><input type="text" id="mTitle" placeholder="e.g. Sunday Service, Choir Rehearsal"/></div>
             <div><label>Date</label><input type="date" id="mDate"/></div>
             <div><label>Start Time</label><input type="time" id="mTime"/></div>
             <div><label>Venue Name</label><input type="text" id="mVenue" placeholder="e.g. Sanctuary"/></div>
@@ -120,11 +138,89 @@
     <!-- LEADERBOARD -->
     <div id="tab-leaderboard" class="hidden">
       <div class="card reveal">
-        <div class="card-header"><div><div class="card-title">Team Leaderboard</div><div class="card-title-sub">Ranked by consistency points</div></div></div>
+        <div class="card-header"><div><div class="card-title">Leaderboard</div><div class="card-title-sub">Ranked by consistency points</div></div></div>
         <ul class="leaderboard-list" id="leaderboardList"><div class="empty-state">Loading…</div></ul>
       </div>
     </div>
+
+    <!-- ANNOUNCEMENTS -->
+    <div id="tab-announcements" class="hidden">
+      <div class="grid-2">
+        <div class="card reveal">
+          <div class="card-header"><div><div class="card-title">Post an Announcement</div></div></div>
+          <div class="meeting-form">
+            <div class="full hidden" id="announceScopeGroup">
+              <label>Visible to</label>
+              <select id="announceScope">
+                <option value="congregation">Everyone (whole church)</option>
+              </select>
+            </div>
+            <div class="full"><label>Title</label><input type="text" id="announceTitle" placeholder="e.g. Choir practice moved to Saturday"/></div>
+            <div class="full"><label>Message</label><textarea id="announceMessage" rows="4" placeholder="Details for the announcement..."></textarea></div>
+            <div class="full"><button class="btn-primary" onclick="postAnnouncement()"><span>Post Announcement</span></button></div>
+          </div>
+        </div>
+        <div class="card reveal">
+          <div class="card-header"><div><div class="card-title">Recent Announcements</div></div></div>
+          <div id="announcementsList"><div class="empty-state">Loading…</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- DEPARTMENTS (super admin only) -->
+    <div id="tab-departments" class="hidden">
+      <div class="card reveal" style="border-color:rgba(201,168,76,0.3);">
+        <div class="card-header"><div><div class="card-title">⚙️ One-Time Account Migration</div><div class="card-title-sub">Only needed once — fixes accounts created before departments existed</div></div></div>
+        <p style="font-size:13px;color:var(--white-dim);margin-bottom:14px;">Accounts registered before this update have no department set at all, so they won't show up in any department view — not even "General Congregation" — until this runs once. Old media team "role" text is carried over as their position automatically. Safe to run more than once; it only touches accounts still missing a department.</p>
+        <button class="btn-secondary" onclick="runMigration()"><span id="migrateBtnText">Fix Old Accounts</span></button>
+        <p id="migrateResult" style="font-size:13px;color:var(--green-light);margin-top:10px;"></p>
+      </div>
+      <div class="grid-2">
+        <div class="card reveal">
+          <div class="card-header"><div><div class="card-title">Create a Department</div></div></div>
+          <div class="meeting-form">
+            <div class="full"><label>Department Name</label><input type="text" id="deptName" placeholder="e.g. Choir, Ushering, Youth Ministry"/></div>
+            <div class="full"><button class="btn-primary" onclick="createDepartment()"><span>Create Department</span></button></div>
+          </div>
+        </div>
+        <div class="card reveal">
+          <div class="card-header"><div><div class="card-title">All Departments</div><div class="card-title-sub">Tap a member's Edit button in the Members tab to make them a department admin</div></div></div>
+          <div id="departmentsList"><div class="empty-state">Loading…</div></div>
+        </div>
+      </div>
+    </div>
   </main>
+
+  <!-- Edit Member modal -->
+  <div class="modal-overlay" id="editMemberModal">
+    <div class="modal-card">
+      <div class="modal-header"><h3 class="modal-title">Edit Member</h3><button class="modal-close" onclick="closeEditMemberModal()">&times;</button></div>
+      <div style="display:flex;flex-direction:column;gap:2px;">
+        <div class="form-group"><label>Name</label><input type="text" id="emName" disabled/></div>
+        <div class="form-group" id="emDeptGroup">
+          <label>Department</label>
+          <select id="emDepartment"></select>
+        </div>
+        <div class="form-group">
+          <label class="checkbox-row"><input type="checkbox" id="emIsWorker"/><span>Active worker/volunteer in this department</span></label>
+        </div>
+        <div class="form-group"><label>Position / Role (optional)</label><input type="text" id="emPosition" placeholder="e.g. Choir Director"/></div>
+        <div class="form-group hidden" id="emRoleGroup">
+          <label>Access Level</label>
+          <select id="emRole">
+            <option value="member">Member</option>
+            <option value="departmentAdmin">Department Admin (of the department selected above)</option>
+            <option value="superAdmin">Super Admin</option>
+          </select>
+        </div>
+        <div id="editMemberError" class="error-msg hidden"></div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:20px;">
+        <button class="btn-secondary" onclick="closeEditMemberModal()"><span>Cancel</span></button>
+        <button class="btn-primary" onclick="saveEditMember()"><span>Save Changes</span></button>
+      </div>
+    </div>
+  </div>
 
   <input type="file" id="adminAvatarInput" accept="image/*" class="hidden"/>
   <div class="toast" id="toast"></div>
@@ -132,36 +228,80 @@
   <script type="module">
     import { auth, db } from "../js/firebase-config.js";
     import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-    import { doc, getDoc, getDocs, collection, query, where, orderBy, addDoc, updateDoc, deleteDoc, onSnapshot, Timestamp, serverTimestamp }
+    import { doc, getDoc, setDoc, getDocs, collection, query, where, orderBy, addDoc, updateDoc, deleteDoc, onSnapshot, Timestamp, serverTimestamp }
       from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
     import { uploadToCloudinary } from "../js/cloudinary-config.js";
     import { sendEmailAlert } from "../js/emailjs-config.js";
     import { icon } from "../js/icons.js";
-    import { initReveal, staggerIn, showToast, imageToSquareBlob } from "../js/motion.js";
+    import { initReveal, staggerIn, showToast, imageToSquareBlob, openModal, closeModal } from "../js/motion.js";
     import { todayKey } from "../js/devotionals.js";
 
+    // "admin" is the old, pre-department role — treated exactly like superAdmin
+    // so an account that existed before this update doesn't get locked out.
+    let myRole = null;        // 'superAdmin' | 'departmentAdmin'
+    let myDept = null;        // department id, only meaningful for departmentAdmin
+    let myDeptName = null;
+    let allDepartments = [];  // [{id, name}]
     let allMembers=[];
     let adminUploadTargetUid = null;
+    let editMemberTargetUid = null;
     let meetingListenerAttached = false;
     let excuseListenerAttached = false;
     let flaggedListenerAttached = false;
     let seenExcuseIds = null;   // null = "haven't seen a snapshot yet" — guards against toasting for pre-existing data on first load
     let seenFlaggedIds = null;
 
-    async function renderOverviewMeeting(meeting) {
+    // The department filter super admins use to scope Meetings/Members/Excuses/
+    // Leaderboard. "" = all departments. "congregation" = church-wide items only.
+    // Department admins never see this control — they're always locked to myDept.
+    function activeScopeFilter() {
+      if (myRole === "departmentAdmin") return { mode: "department", dept: myDept };
+      const val = document.getElementById("deptFilter").value;
+      if (val === "") return { mode: "all" };
+      if (val === "congregation") return { mode: "congregation" };
+      return { mode: "department", dept: val };
+    }
+
+    window.onDeptFilterChange = () => {
+      const tab = document.querySelector(".tab.active")?.dataset.tab || "overview";
+      if (tab==="meetings") loadMeetings();
+      if (tab==="members") loadMembers();
+      if (tab==="excuses") loadExcuses();
+      if (tab==="leaderboard") loadLeaderboard();
+    };
+
+    async function loadDepartments() {
+      const snap = await getDocs(query(collection(db,"departments"), orderBy("name")));
+      allDepartments = snap.docs.map(d=>({id:d.id, ...d.data()}));
+    }
+
+    function departmentName(id) {
+      if (!id || id === "general") return "General Congregation";
+      const d = allDepartments.find(x=>x.id===id);
+      return d ? d.name : id;
+    }
+
+    async function renderOverviewMeeting(meetings) {
       const ovEl=document.getElementById("overviewActiveMeeting");
-      if(!meeting){
+      if(!meetings.length){
         document.getElementById("oPresentToday").textContent="—";
         ovEl.innerHTML=`<div class="empty-state">${icon("calendar","icon-xl")}<p>No active meeting right now.</p></div>`;
         return;
       }
       try {
-        const attSnap=await getDocs(query(collection(db,"attendance"),where("meetingId","==",meeting.id)));
-        document.getElementById("oPresentToday").textContent=attSnap.size;
-        let liveHtml=`<div class="table-scroll"><table class="attendance-table"><thead><tr><th>Name</th><th>In</th><th>Out</th><th>Status</th></tr></thead><tbody>`;
-        attSnap.forEach(d=>{const a=d.data();const inT=a.clockInTime?new Date(a.clockInTime.toDate()).toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"}):"—";const outT=a.clockOutTime?new Date(a.clockOutTime.toDate()).toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"}):"Still In";liveHtml+=`<tr><td><strong>${a.userName}</strong></td><td>${inT}</td><td>${outT}</td><td><span class="badge ${a.late?"badge-late":"badge-present"}">${a.late?"Late":"On Time"}</span></td></tr>`;});
-        liveHtml+=`</tbody></table></div>`;
-        ovEl.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;"><div><div style="font-family:'Cinzel',serif;font-size:18px;font-weight:700;">${meeting.title}</div><div style="font-size:13px;color:var(--white-dim);margin-top:4px;">${meeting.venue} · ${attSnap.size} present</div></div><button class="btn-decline" onclick="endMeeting('${meeting.id}')">End Meeting</button></div>${liveHtml}`;
+        let totalPresent = 0;
+        let blocks = "";
+        for (const meeting of meetings) {
+          const attSnap=await getDocs(query(collection(db,"attendance"),where("meetingId","==",meeting.id)));
+          totalPresent += attSnap.size;
+          let liveHtml=`<div class="table-scroll"><table class="attendance-table"><thead><tr><th>Name</th><th>In</th><th>Out</th><th>Status</th></tr></thead><tbody>`;
+          attSnap.forEach(d=>{const a=d.data();const inT=a.clockInTime?new Date(a.clockInTime.toDate()).toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"}):"—";const outT=a.clockOutTime?new Date(a.clockOutTime.toDate()).toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"}):"Still In";liveHtml+=`<tr><td><strong>${a.userName}</strong></td><td>${inT}</td><td>${outT}</td><td><span class="badge ${a.late?"badge-late":"badge-present"}">${a.late?"Late":"On Time"}</span></td></tr>`;});
+          liveHtml+=`</tbody></table></div>`;
+          const scopeLabel = meeting.scope==="congregation" ? "Congregation-wide" : departmentName(meeting.department);
+          blocks += `<div style="margin-bottom:20px;"><div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;"><div><div style="font-family:'Cinzel',serif;font-size:18px;font-weight:700;">${meeting.title} <span class="badge badge-department" style="margin-left:6px;">${scopeLabel}</span></div><div style="font-size:13px;color:var(--white-dim);margin-top:4px;">${meeting.venue} · ${attSnap.size} present</div></div><button class="btn-decline" onclick="endMeeting('${meeting.id}')">End Meeting</button></div>${liveHtml}</div>`;
+        }
+        document.getElementById("oPresentToday").textContent=totalPresent;
+        ovEl.innerHTML = blocks;
       } catch (err) {
         ovEl.innerHTML = `<div class="empty-state">${icon("alert","icon-xl")}<p>Couldn't load live attendance: ${err.message}</p></div>`;
       }
@@ -177,7 +317,7 @@
     }
 
     window.switchTab=(tab)=>{
-      const tabs=["overview","meetings","members","excuses","leaderboard"];
+      const tabs=["overview","meetings","members","excuses","leaderboard","announcements","departments"];
       document.querySelectorAll(".tab").forEach((t)=>{t.classList.toggle("active", t.dataset.tab===tab);});
       tabs.forEach(id=>{
         const el=document.getElementById(`tab-${id}`);
@@ -189,6 +329,8 @@
       if(tab==="excuses")loadExcuses();
       if(tab==="leaderboard")loadLeaderboard();
       if(tab==="meetings")loadMeetings();
+      if(tab==="announcements")loadAnnouncements();
+      if(tab==="departments")loadDepartmentsTab();
     };
 
     async function loadDevotionalOverview(){
@@ -214,8 +356,10 @@
     }
 
     async function loadOverview(){
-      // Members + flagged list: realtime, so a newly-flagged member (2+ missed)
-      // shows up — and toasts — the instant it happens, not just on tab reload.
+      // Flagged members: realtime. Firestore's security rules automatically
+      // scope this per role — a super admin's listener sees every department;
+      // a department admin's identical, unfiltered-looking query only ever
+      // returns their own department's members, enforced server-side.
       if (!flaggedListenerAttached) {
         flaggedListenerAttached = true;
         onSnapshot(query(collection(db,"users"),where("role","==","member")), (mSnap) => {
@@ -224,7 +368,7 @@
           document.getElementById("oFlagged").textContent=flagged.length;
           const flaggedEl=document.getElementById("flaggedList");
           if(!flagged.length){flaggedEl.innerHTML=`<div class="empty-state">${icon("check","icon-xl")}<p>No flagged members. Everyone's showing up!</p></div>`;}
-          else{flaggedEl.innerHTML=`<div class="table-scroll"><table class="attendance-table"><thead><tr><th>Name</th><th>Role</th><th>Missed</th><th>Email</th></tr></thead><tbody>`+flagged.map(d=>{const u=d.data();return`<tr><td><strong>${u.name}</strong></td><td>${u.mediaRole||"—"}</td><td><span class="badge badge-flagged">${u.totalMissed} missed</span></td><td style="font-size:12px;color:var(--white-dim);">${u.email}</td></tr>`;}).join("")+`</tbody></table></div>`;}
+          else{flaggedEl.innerHTML=`<div class="table-scroll"><table class="attendance-table"><thead><tr><th>Name</th><th>Department</th><th>Missed</th><th>Email</th></tr></thead><tbody>`+flagged.map(d=>{const u=d.data();return`<tr><td><strong>${u.name}</strong></td><td>${departmentName(u.department)}</td><td><span class="badge badge-flagged">${u.totalMissed} missed</span></td><td style="font-size:12px;color:var(--white-dim);">${u.email}</td></tr>`;}).join("")+`</tbody></table></div>`;}
 
           const currentFlaggedIds = new Set(flagged.map(d=>d.id));
           if (seenFlaggedIds !== null) {
@@ -240,8 +384,8 @@
         });
       }
 
-      // Pending excuses: realtime, so a new excuse request toasts immediately
-      // and the tab badge count is always current.
+      // Pending excuses: realtime, same rules-enforced scoping as above — a
+      // department admin only ever sees excuses tied to their own department's meetings.
       if (!excuseListenerAttached) {
         excuseListenerAttached = true;
         onSnapshot(query(collection(db,"excuses"),where("status","==","pending")), (eSnap) => {
@@ -255,7 +399,6 @@
                 showToast(`New excuse request from ${d.data().userName}`, "success", icon("mail"));
               }
             });
-            // If the Excuses tab happens to be open right now, refresh it live too.
             if (!document.getElementById("tab-excuses").classList.contains("hidden")) loadExcuses();
           }
           seenExcuseIds = currentExcuseIds;
@@ -266,12 +409,13 @@
 
       await loadDevotionalOverview();
 
-      // Active meeting is handled by a realtime listener (attached once, below) so
-      // it updates instantly for the admin too, without needing to reload the tab.
+      // Active meetings: realtime. Same rules-enforced scoping — a super admin
+      // sees every active meeting church-wide; a department admin's identical
+      // query only ever returns congregation-wide meetings plus their own department's.
       if (!meetingListenerAttached) {
         meetingListenerAttached = true;
         onSnapshot(query(collection(db,"meetings"),where("status","==","active")), (aSnap) => {
-          renderOverviewMeeting(aSnap.empty ? null : { id: aSnap.docs[0].id, ...aSnap.docs[0].data() });
+          renderOverviewMeeting(aSnap.docs.map(d=>({id:d.id, ...d.data()})));
         }, (err) => {
           document.getElementById("overviewActiveMeeting").innerHTML = `<div class="empty-state">${icon("alert","icon-xl")}<p>Couldn't check for a live meeting: ${err.message}</p></div>`;
         });
@@ -282,34 +426,64 @@
 
     window.loadMeetings=async()=>{
       const el=document.getElementById("meetingsList");
+      const scope = activeScopeFilter();
       try {
-        const snap=await getDocs(query(collection(db,"meetings"),orderBy("scheduledAt","desc")));
-        if(snap.empty){el.innerHTML=`<div class="empty-state">${icon("calendar","icon-xl")}<p>No meetings yet.</p></div>`;return;}
-        el.innerHTML=snap.docs.map(d=>{const m=d.data();const dt=m.scheduledAt?new Date(m.scheduledAt.toDate()).toLocaleString("en-NG",{weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}):"—";const sc=m.status==="active"?"badge-present":m.status==="ended"?"badge-absent":"badge-pending";return`<div style="padding:14px 0;border-bottom:1px solid rgba(255,255,255,0.05);"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;"><div><div style="font-weight:600;font-size:14px;">${m.title}</div><div style="font-size:12px;color:var(--white-dim);margin-top:2px;">${dt} · ${m.venue||"—"}</div></div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span class="badge ${sc}">${m.status}</span>${m.status==="upcoming"?`<button class="btn-approve" onclick="activateMeeting('${d.id}')">Start</button>`:""} ${m.status==="active"?`<button class="btn-decline" onclick="endMeeting('${d.id}')">End</button>`:""} ${m.status!=="active"?`<button class="btn-decline" style="padding:5px 10px;font-size:11px;" onclick="deleteMeeting('${d.id}')">Delete</button>`:""}</div></div></div>`;}).join("");
+        let snap;
+        if (scope.mode === "all") {
+          snap = await getDocs(collection(db,"meetings"));
+        } else if (scope.mode === "congregation") {
+          snap = await getDocs(query(collection(db,"meetings"), where("scope","==","congregation")));
+        } else {
+          snap = await getDocs(query(collection(db,"meetings"), where("scope","==","department"), where("department","==",scope.dept)));
+        }
+        const meetings = snap.docs.map(d=>({id:d.id, ...d.data()})).sort((a,b)=>(b.scheduledAt?.toMillis()||0)-(a.scheduledAt?.toMillis()||0));
+        if(!meetings.length){el.innerHTML=`<div class="empty-state">${icon("calendar","icon-xl")}<p>No meetings yet.</p></div>`;return;}
+        el.innerHTML=meetings.map(m=>{const dt=m.scheduledAt?new Date(m.scheduledAt.toDate()).toLocaleString("en-NG",{weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}):"—";const sc=m.status==="active"?"badge-present":m.status==="ended"?"badge-absent":"badge-pending";const scopeLabel=m.scope==="congregation"?"Congregation":departmentName(m.department);return`<div style="padding:14px 0;border-bottom:1px solid rgba(255,255,255,0.05);"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;"><div><div style="font-weight:600;font-size:14px;">${m.title} <span class="badge badge-department" style="margin-left:4px;">${scopeLabel}</span></div><div style="font-size:12px;color:var(--white-dim);margin-top:2px;">${dt} · ${m.venue||"—"}</div></div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span class="badge ${sc}">${m.status}</span>${m.status==="upcoming"?`<button class="btn-approve" onclick="activateMeeting('${m.id}')">Start</button>`:""} ${m.status==="active"?`<button class="btn-decline" onclick="endMeeting('${m.id}')">End</button>`:""} ${m.status!=="active"?`<button class="btn-decline" style="padding:5px 10px;font-size:11px;" onclick="deleteMeeting('${m.id}')">Delete</button>`:""}</div></div></div>`;}).join("");
       } catch (err) {
         el.innerHTML = `<div class="empty-state">${icon("alert","icon-xl")}<p>Couldn't load meetings: ${err.message}</p></div>`;
       }
     };
 
+    // The meeting form's scope selector — only super admins get a real choice.
+    function populateMeetingScopeSelect() {
+      const sel = document.getElementById("mScope");
+      if (myRole === "departmentAdmin") {
+        sel.innerHTML = `<option value="department:${myDept}">${myDeptName} (only your department checks in)</option>`;
+        sel.disabled = true;
+      } else {
+        sel.disabled = false;
+        sel.innerHTML = `<option value="congregation">Congregation-wide (Service — everyone checks in)</option>` +
+          allDepartments.map(d=>`<option value="department:${d.id}">${d.name} (only this department checks in)</option>`).join("");
+      }
+    }
+    window.onMeetingScopeChange = () => {};
+
     window.createMeeting=async()=>{
       const title=document.getElementById("mTitle").value.trim(),date=document.getElementById("mDate").value,time=document.getElementById("mTime").value,venue=document.getElementById("mVenue").value.trim(),lat=parseFloat(document.getElementById("mLat").value),lng=parseFloat(document.getElementById("mLng").value),radius=parseInt(document.getElementById("mRadius").value)||150,lateMin=parseInt(document.getElementById("mLate").value)||15,notes=document.getElementById("mNotes").value.trim();
+      const scopeVal = document.getElementById("mScope").value;
       if(!title||!date||!time||!venue||isNaN(lat)||isNaN(lng)){showToast("Fill all fields including GPS coordinates.","error",icon("alert"));return;}
-      await addDoc(collection(db,"meetings"),{title,venue,lat,lng,radiusMeters:radius,lateThresholdMinutes:lateMin,notes,scheduledAt:Timestamp.fromDate(new Date(`${date}T${time}`)),status:"upcoming",createdAt:serverTimestamp()});
+      const scope = scopeVal === "congregation" ? "congregation" : "department";
+      const department = scopeVal === "congregation" ? null : scopeVal.split(":")[1];
+      await addDoc(collection(db,"meetings"),{title,venue,lat,lng,radiusMeters:radius,lateThresholdMinutes:lateMin,notes,scope,department,scheduledAt:Timestamp.fromDate(new Date(`${date}T${time}`)),status:"upcoming",createdAt:serverTimestamp()});
       ["mTitle","mDate","mTime","mVenue","mLat","mLng","mNotes"].forEach(id=>document.getElementById(id).value="");
       document.getElementById("mRadius").value="150";
       showToast("Meeting scheduled! ✅"); loadMeetings();
     };
 
     window.activateMeeting=async(id)=>{
-      const aSnap=await getDocs(query(collection(db,"meetings"),where("status","==","active")));
-      for(const d of aSnap.docs)await updateDoc(doc(db,"meetings",d.id),{status:"ended"});
       await updateDoc(doc(db,"meetings",id),{status:"active",startedAt:serverTimestamp()});
       showToast("Meeting is now live! Members can clock in. 🟢"); loadMeetings();
     };
 
     window.endMeeting=async(id)=>{
+      const meetingSnap = await getDoc(doc(db,"meetings",id));
+      const meeting = meetingSnap.data();
       await updateDoc(doc(db,"meetings",id),{status:"ended",endedAt:serverTimestamp()});
-      const mSnap=await getDocs(query(collection(db,"users"),where("role","==","member")));
+      // Only the members this meeting was actually for can be marked absent —
+      // congregation meetings check everyone, department meetings check only that department.
+      const mSnap = meeting.scope==="congregation"
+        ? await getDocs(query(collection(db,"users"),where("role","==","member")))
+        : await getDocs(query(collection(db,"users"),where("role","==","member"),where("department","==",meeting.department)));
       const attSnap=await getDocs(query(collection(db,"attendance"),where("meetingId","==",id)));
       const attendedIds=new Set(attSnap.docs.map(d=>d.data().userId));
       const newlyFlagged = [];
@@ -320,8 +494,6 @@
           if(exSnap.empty){
             const newTotalMissed = (udata.totalMissed||0)+1;
             await updateDoc(doc(db,"users",uid),{totalMissed:newTotalMissed,streak:0});
-            // Email only on the exact moment someone crosses into "flagged" —
-            // not on every subsequent miss, so a chronic absentee doesn't spam the inbox.
             if(newTotalMissed===2) newlyFlagged.push(udata.name);
           }
         }
@@ -329,7 +501,7 @@
       if(newlyFlagged.length){
         sendEmailAlert(
           newlyFlagged.length===1 ? `${newlyFlagged[0]} has been flagged` : `${newlyFlagged.length} members have been flagged`,
-          `The following member${newlyFlagged.length===1?"":"s"} just crossed 2 missed meetings without an approved excuse:\n\n${newlyFlagged.map(n=>"• "+n).join("\n")}\n\nSee the Overview tab in the admin dashboard for details.`
+          `The following member${newlyFlagged.length===1?"":"s"} just crossed 2 missed meetings without an approved excuse (from "${meeting.title}"):\n\n${newlyFlagged.map(n=>"• "+n).join("\n")}\n\nSee the Overview tab in the admin dashboard for details.`
         );
       }
       showToast("Meeting ended. Absences recorded."); loadMeetings(); loadOverview();
@@ -339,9 +511,13 @@
     window.getMyLocation=()=>{if(!navigator.geolocation){showToast("Geolocation not supported.","error",icon("alert"));return;}navigator.geolocation.getCurrentPosition(p=>{document.getElementById("mLat").value=p.coords.latitude.toFixed(6);document.getElementById("mLng").value=p.coords.longitude.toFixed(6);showToast("Location captured! ✅");},()=>showToast("Could not get location.","error",icon("alert")),{enableHighAccuracy:true});};
 
     window.loadMembers=async()=>{
+      const scope = activeScopeFilter();
       try {
-        const snap=await getDocs(query(collection(db,"users"),where("role","==","member")));
-        allMembers=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>a.name.localeCompare(b.name));
+        let snap;
+        if (scope.mode === "all") snap = await getDocs(collection(db,"users"));
+        else if (scope.mode === "congregation") snap = await getDocs(query(collection(db,"users"), where("department","==","general")));
+        else snap = await getDocs(query(collection(db,"users"), where("department","==",scope.dept)));
+        allMembers=snap.docs.map(d=>({id:d.id,...d.data()})).filter(u=>u.role==="member"||u.role==="departmentAdmin"||u.role==="superAdmin").sort((a,b)=>a.name.localeCompare(b.name));
         renderMembersGrid(allMembers);
         document.getElementById("membersSubtitle").textContent=`${allMembers.length} member${allMembers.length!==1?"s":""} total`;
       } catch (err) {
@@ -350,10 +526,17 @@
       }
     };
 
+    function roleBadgeFor(u) {
+      if (u.role==="superAdmin"||u.role==="admin") return `<span class="badge badge-superadmin">Super Admin</span>`;
+      if (u.role==="departmentAdmin") return `<span class="badge badge-superadmin">Dept Admin</span>`;
+      if (u.isWorker) return `<span class="badge badge-worker">Worker</span>`;
+      return "";
+    }
+
     function renderMembersGrid(members){
       const grid=document.getElementById("membersGrid");
       if(!members.length){grid.innerHTML=`<div class="empty-state">${icon("users","icon-xl")}<p>No members yet.</p></div>`;return;}
-      grid.innerHTML=members.map(u=>{const flagged=(u.totalMissed||0)>=2;const rate=u.totalAttended+u.totalMissed>0?Math.round((u.totalAttended/(u.totalAttended+u.totalMissed))*100):100;return`<div class="member-card ${flagged?"flagged-card":""}"><div class="member-card-top"><div class="member-card-avatar-wrap"><div class="avatar member-card-avatar">${avatarHTML(u)}</div><button class="avatar-edit-btn" onclick="openAdminAvatarPicker('${u.id}')" aria-label="Change photo">${icon("camera")}</button></div><div><div class="member-card-name">${u.name} ${flagged?"⚠️":""}</div><div class="member-card-role">${u.mediaRole||"Member"}</div></div></div><div class="member-card-stats"><div class="member-stat"><div class="member-stat-label">Attended</div><div class="member-stat-value" style="color:var(--green-light);">${u.totalAttended||0}</div></div><div class="member-stat"><div class="member-stat-label">Missed</div><div class="member-stat-value" style="color:${flagged?"#E74C3C":"var(--white)"};">${u.totalMissed||0}</div></div><div class="member-stat"><div class="member-stat-label">Points</div><div class="member-stat-value" style="color:var(--gold);">${u.points||0}</div></div><div class="member-stat"><div class="member-stat-label">Rate</div><div class="member-stat-value">${rate}%</div></div></div></div>`;}).join("");
+      grid.innerHTML=members.map(u=>{const flagged=(u.totalMissed||0)>=2;const rate=u.totalAttended+u.totalMissed>0?Math.round((u.totalAttended/(u.totalAttended+u.totalMissed))*100):100;return`<div class="member-card ${flagged?"flagged-card":""}"><div class="member-card-top"><div class="member-card-avatar-wrap"><div class="avatar member-card-avatar">${avatarHTML(u)}</div><button class="avatar-edit-btn" onclick="openAdminAvatarPicker('${u.id}')" aria-label="Change photo">${icon("camera")}</button></div><div style="flex:1;min-width:0;"><div class="member-card-name">${u.name} ${flagged?"⚠️":""}</div><div class="member-card-role">${u.position || "Member"} · <span class="badge badge-department">${departmentName(u.department)}</span></div><div style="margin-top:4px;">${roleBadgeFor(u)}</div></div><button class="icon-btn-inline" onclick="openEditMemberModal('${u.id}')" aria-label="Edit member" title="Edit">${icon("edit")}</button></div><div class="member-card-stats"><div class="member-stat"><div class="member-stat-label">Attended</div><div class="member-stat-value" style="color:var(--green-light);">${u.totalAttended||0}</div></div><div class="member-stat"><div class="member-stat-label">Missed</div><div class="member-stat-value" style="color:${flagged?"#E74C3C":"var(--white)"};">${u.totalMissed||0}</div></div><div class="member-stat"><div class="member-stat-label">Points</div><div class="member-stat-value" style="color:var(--gold);">${u.points||0}</div></div><div class="member-stat"><div class="member-stat-label">Rate</div><div class="member-stat-value">${rate}%</div></div></div></div>`;}).join("");
     }
 
     window.filterMembers=()=>{const q=document.getElementById("memberSearch").value.toLowerCase();renderMembersGrid(allMembers.filter(m=>m.name.toLowerCase().includes(q)));};
@@ -377,12 +560,74 @@
       adminUploadTargetUid = null;
     });
 
+    // ---- Edit Member modal ----
+    window.openEditMemberModal = (uid) => {
+      const u = allMembers.find(m=>m.id===uid);
+      if (!u) return;
+      editMemberTargetUid = uid;
+      document.getElementById("editMemberError").classList.add("hidden");
+      document.getElementById("emName").value = u.name;
+      document.getElementById("emIsWorker").checked = !!u.isWorker;
+      document.getElementById("emPosition").value = u.position || "";
+
+      const deptSel = document.getElementById("emDepartment");
+      const canChangeDept = myRole === "superAdmin";
+      deptSel.disabled = !canChangeDept;
+      deptSel.innerHTML = `<option value="general">General Congregation</option>` + allDepartments.map(d=>`<option value="${d.id}">${d.name}</option>`).join("");
+      deptSel.value = u.department || "general";
+
+      const roleGroup = document.getElementById("emRoleGroup");
+      roleGroup.classList.toggle("hidden", myRole !== "superAdmin");
+      if (myRole === "superAdmin") {
+        document.getElementById("emRole").value = (u.role==="admin") ? "superAdmin" : (u.role || "member");
+      }
+
+      openModal("editMemberModal");
+    };
+    window.closeEditMemberModal = () => { closeModal("editMemberModal"); editMemberTargetUid = null; };
+
+    window.saveEditMember = async () => {
+      if (!editMemberTargetUid) return;
+      const errEl = document.getElementById("editMemberError");
+      errEl.classList.add("hidden");
+      const updates = {
+        isWorker: document.getElementById("emIsWorker").checked,
+        position: document.getElementById("emPosition").value.trim()
+      };
+      if (myRole === "superAdmin") {
+        const dept = document.getElementById("emDepartment").value;
+        updates.department = dept;
+        updates.departmentName = departmentName(dept);
+        const newRole = document.getElementById("emRole").value;
+        updates.role = newRole;
+        if (newRole === "departmentAdmin" && dept === "general") {
+          errEl.textContent = "A department admin needs a real department selected, not General Congregation.";
+          errEl.classList.remove("hidden");
+          return;
+        }
+      }
+      try {
+        await updateDoc(doc(db,"users",editMemberTargetUid), updates);
+        showToast("Member updated.", "success", icon("check"));
+        closeEditMemberModal();
+        loadMembers();
+      } catch (err) {
+        errEl.textContent = err.message;
+        errEl.classList.remove("hidden");
+      }
+    };
+
     window.loadExcuses=async()=>{
       const el=document.getElementById("excusesList");
+      const scope = activeScopeFilter();
       try {
-        const snap=await getDocs(query(collection(db,"excuses"),orderBy("submittedAt","desc")));
-        if(snap.empty){el.innerHTML=`<div class="empty-state">${icon("clipboard","icon-xl")}<p>No excuse requests.</p></div>`;return;}
-        el.innerHTML=snap.docs.map(d=>{const e=d.data();const initials=e.userName?e.userName.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase():"?";const date=e.submittedAt?new Date(e.submittedAt.toDate()).toLocaleDateString("en-NG",{day:"numeric",month:"short",year:"numeric"}):"—";const sc=e.status==="pending"?"badge-pending":e.status==="approved"?"badge-present":"badge-absent";return`<div class="excuse-request"><div class="avatar excuse-req-avatar">${initials}</div><div class="excuse-req-body"><div class="excuse-req-name">${e.userName}</div><div class="excuse-req-meeting">${e.meetingTitle} · Submitted ${date}</div><div class="excuse-req-reason">${e.reason}</div><div style="margin-top:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;"><span class="badge ${sc}">${e.status}</span>${e.status==="pending"?`<div class="excuse-req-actions"><button class="btn-approve" onclick="reviewExcuse('${d.id}','${e.userId}','approved')">Approve</button><button class="btn-decline" onclick="reviewExcuse('${d.id}','${e.userId}','declined')">Decline</button></div>`:""}</div></div></div>`;}).join("");
+        let snap;
+        if (scope.mode === "all") snap = await getDocs(collection(db,"excuses"));
+        else if (scope.mode === "congregation") snap = await getDocs(query(collection(db,"excuses"), where("meetingScope","==","congregation")));
+        else snap = await getDocs(query(collection(db,"excuses"), where("meetingScope","==","department"), where("meetingDepartment","==",scope.dept)));
+        const excuses = snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.submittedAt?.toMillis()||0)-(a.submittedAt?.toMillis()||0));
+        if(!excuses.length){el.innerHTML=`<div class="empty-state">${icon("clipboard","icon-xl")}<p>No excuse requests.</p></div>`;return;}
+        el.innerHTML=excuses.map(e=>{const initials=e.userName?e.userName.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase():"?";const date=e.submittedAt?new Date(e.submittedAt.toDate()).toLocaleDateString("en-NG",{day:"numeric",month:"short",year:"numeric"}):"—";const sc=e.status==="pending"?"badge-pending":e.status==="approved"?"badge-present":"badge-absent";return`<div class="excuse-request"><div class="avatar excuse-req-avatar">${initials}</div><div class="excuse-req-body"><div class="excuse-req-name">${e.userName}</div><div class="excuse-req-meeting">${e.meetingTitle} · Submitted ${date}</div><div class="excuse-req-reason">${e.reason}</div><div style="margin-top:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;"><span class="badge ${sc}">${e.status}</span>${e.status==="pending"?`<div class="excuse-req-actions"><button class="btn-approve" onclick="reviewExcuse('${e.id}','${e.userId}','approved')">Approve</button><button class="btn-decline" onclick="reviewExcuse('${e.id}','${e.userId}','declined')">Decline</button></div>`:""}</div></div></div>`;}).join("");
       } catch (err) {
         el.innerHTML = `<div class="empty-state">${icon("alert","icon-xl")}<p>Couldn't load excuses: ${err.message}</p></div>`;
       }
@@ -392,14 +637,159 @@
 
     window.loadLeaderboard=async()=>{
       const el=document.getElementById("leaderboardList");
+      const scope = activeScopeFilter();
       try {
-        const snap=await getDocs(query(collection(db,"users"),where("role","==","member")));
+        let snap;
+        if (scope.mode === "all") snap = await getDocs(query(collection(db,"users"),where("role","==","member")));
+        else if (scope.mode === "congregation") snap = await getDocs(query(collection(db,"users"),where("role","==","member"),where("department","==","general")));
+        else snap = await getDocs(query(collection(db,"users"),where("role","==","member"),where("department","==",scope.dept)));
         const members=snap.docs.map(d=>d.data()).sort((a,b)=>(b.points||0)-(a.points||0));
         if(!members.length){el.innerHTML=`<div class="empty-state">${icon("trophy","icon-xl")}<p>No data yet.</p></div>`;return;}
         const rC=["gold-rank","silver-rank","bronze-rank"],rI=["🥇","🥈","🥉"];
-        el.innerHTML=members.map((u,i)=>`<li class="leaderboard-item"><div class="lb-rank ${rC[i]||""}">${i<3?rI[i]:`${i+1}`}</div><div class="avatar lb-avatar">${avatarHTML(u)}</div><div style="flex:1;min-width:0;"><div class="lb-name">${u.name}</div><div class="lb-role">${u.mediaRole||"Member"} · Streak: ${u.streak||0} 🔥 · Word: ${u.devotionalStreak||0}🕯️</div></div><div class="lb-points">${u.points||0} pts</div></li>`).join("");
+        el.innerHTML=members.map((u,i)=>`<li class="leaderboard-item"><div class="lb-rank ${rC[i]||""}">${i<3?rI[i]:`${i+1}`}</div><div class="avatar lb-avatar">${avatarHTML(u)}</div><div style="flex:1;min-width:0;"><div class="lb-name">${u.name}</div><div class="lb-role">${departmentName(u.department)} · Streak: ${u.streak||0} 🔥 · Word: ${u.devotionalStreak||0}🕯️</div></div><div class="lb-points">${u.points||0} pts</div></li>`).join("");
       } catch (err) {
         el.innerHTML = `<div class="empty-state">${icon("alert","icon-xl")}<p>Couldn't load leaderboard: ${err.message}</p></div>`;
+      }
+    };
+
+    // ---- Announcements ----
+    function populateAnnounceScopeSelect() {
+      const group = document.getElementById("announceScopeGroup");
+      const sel = document.getElementById("announceScope");
+      if (myRole === "departmentAdmin") {
+        group.classList.add("hidden");
+        sel.innerHTML = `<option value="department:${myDept}">${myDeptName}</option>`;
+      } else {
+        group.classList.remove("hidden");
+        sel.innerHTML = `<option value="congregation">Everyone (whole church)</option>` +
+          allDepartments.map(d=>`<option value="department:${d.id}">${d.name} only</option>`).join("");
+      }
+    }
+
+    window.postAnnouncement = async () => {
+      const title = document.getElementById("announceTitle").value.trim();
+      const message = document.getElementById("announceMessage").value.trim();
+      if (!title || !message) { showToast("Add a title and a message.","error",icon("alert")); return; }
+      const scopeVal = document.getElementById("announceScope").value;
+      const scope = scopeVal === "congregation" ? "congregation" : "department";
+      const department = scopeVal === "congregation" ? null : scopeVal.split(":")[1];
+      await addDoc(collection(db,"announcements"), {
+        title, message, scope, department,
+        postedBy: auth.currentUser.uid, postedByName: document.getElementById("navName").textContent,
+        createdAt: serverTimestamp()
+      });
+      document.getElementById("announceTitle").value = "";
+      document.getElementById("announceMessage").value = "";
+      showToast("Announcement posted.","success",icon("check"));
+      loadAnnouncements();
+    };
+
+    window.loadAnnouncements = async () => {
+      const el = document.getElementById("announcementsList");
+      const scope = activeScopeFilter();
+      try {
+        let snap;
+        if (scope.mode === "all" || myRole === "superAdmin") snap = await getDocs(collection(db,"announcements"));
+        else snap = await getDocs(query(collection(db,"announcements"), where("department","==",myDept)));
+        let anns = snap.docs.map(d=>({id:d.id,...d.data()}));
+        if (scope.mode === "congregation") anns = anns.filter(a=>a.scope==="congregation");
+        else if (scope.mode === "department") anns = anns.filter(a=>a.scope==="department" && a.department===scope.dept);
+        anns.sort((a,b)=>(b.createdAt?.toMillis()||0)-(a.createdAt?.toMillis()||0));
+        if (!anns.length) { el.innerHTML = `<div class="empty-state">${icon("clipboard","icon-xl")}<p>No announcements yet.</p></div>`; return; }
+        el.innerHTML = anns.map(a=>{
+          const date = a.createdAt ? new Date(a.createdAt.toDate()).toLocaleDateString("en-NG",{day:"numeric",month:"short"}) : "—";
+          const scopeLabel = a.scope==="congregation" ? "Whole church" : departmentName(a.department);
+          const canDelete = myRole==="superAdmin" || (myRole==="departmentAdmin" && a.department===myDept);
+          return `<div style="padding:14px 0;border-bottom:1px solid rgba(255,255,255,0.05);">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
+              <div><div style="font-weight:600;font-size:14px;">${a.title} <span class="badge badge-department" style="margin-left:4px;">${scopeLabel}</span></div>
+              <div style="font-size:12px;color:var(--white-dim);margin-top:4px;">${a.message}</div>
+              <div style="font-size:11px;color:var(--white-dim);margin-top:6px;">${a.postedByName||"Admin"} · ${date}</div></div>
+              ${canDelete?`<button class="btn-decline" style="padding:5px 10px;font-size:11px;flex-shrink:0;" onclick="deleteAnnouncement('${a.id}')">Delete</button>`:""}
+            </div>
+          </div>`;
+        }).join("");
+      } catch (err) {
+        el.innerHTML = `<div class="empty-state">${icon("alert","icon-xl")}<p>Couldn't load announcements: ${err.message}</p></div>`;
+      }
+    };
+
+    window.deleteAnnouncement = async (id) => {
+      if (!confirm("Delete this announcement?")) return;
+      await deleteDoc(doc(db,"announcements",id));
+      showToast("Announcement deleted.");
+      loadAnnouncements();
+    };
+
+    // ---- Departments tab (super admin only) ----
+    window.runMigration = async () => {
+      const btn = document.getElementById("migrateBtnText");
+      const result = document.getElementById("migrateResult");
+      btn.textContent = "Checking accounts…";
+      try {
+        const snap = await getDocs(collection(db,"users"));
+        const toFix = snap.docs.filter(d => !d.data().department);
+        if (!toFix.length) {
+          result.textContent = "Nothing to fix — every account already has a department.";
+          btn.textContent = "Fix Old Accounts";
+          return;
+        }
+        let count = 0;
+        for (const d of toFix) {
+          const u = d.data();
+          const oldRole = u.role === "admin" ? "superAdmin" : (u.role || "member");
+          await updateDoc(doc(db,"users",d.id), {
+            department: "general",
+            departmentName: "General Congregation",
+            isWorker: !!u.mediaRole,
+            position: u.mediaRole || u.position || "",
+            role: oldRole
+          });
+          count++;
+        }
+        result.textContent = `Fixed ${count} account${count!==1?"s":""}. They're now visible as General Congregation members.`;
+        btn.textContent = "Fix Old Accounts";
+        loadMembers();
+      } catch (err) {
+        result.textContent = `Something went wrong: ${err.message}`;
+        result.style.color = "#F1948A";
+        btn.textContent = "Fix Old Accounts";
+      }
+    };
+
+    window.createDepartment = async () => {
+      const name = document.getElementById("deptName").value.trim();
+      if (!name) { showToast("Enter a department name.","error",icon("alert")); return; }
+      let slug = name.toLowerCase().trim().replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"");
+      if (!slug || slug==="general") slug = "dept-" + Math.random().toString(36).slice(2,8);
+      const existing = await getDoc(doc(db,"departments",slug));
+      if (existing.exists()) slug = slug + "-" + Math.random().toString(36).slice(2,5);
+      await setDoc(doc(db,"departments",slug), { name, createdAt: serverTimestamp(), createdBy: auth.currentUser.uid });
+      document.getElementById("deptName").value = "";
+      showToast(`"${name}" department created.`,"success",icon("check"));
+      await loadDepartments();
+      populateMeetingScopeSelect();
+      populateAnnounceScopeSelect();
+      loadDepartmentsTab();
+    };
+
+    window.loadDepartmentsTab = async () => {
+      await loadDepartments();
+      const el = document.getElementById("departmentsList");
+      if (!allDepartments.length) { el.innerHTML = `<div class="empty-state">${icon("users","icon-xl")}<p>No departments created yet.</p></div>`; return; }
+      try {
+        const usersSnap = await getDocs(collection(db,"users"));
+        const users = usersSnap.docs.map(d=>d.data());
+        el.innerHTML = allDepartments.map(dep => {
+          const memberCount = users.filter(u=>u.department===dep.id).length;
+          const deptAdmins = users.filter(u=>u.department===dep.id && u.role==="departmentAdmin").map(u=>u.name);
+          return `<div style="padding:12px 0;border-bottom:1px solid rgba(255,255,255,0.05);">
+            <div style="font-weight:600;font-size:14px;">${dep.name}</div>
+            <div style="font-size:12px;color:var(--white-dim);margin-top:2px;">${memberCount} member${memberCount!==1?"s":""} · Admin${deptAdmins.length!==1?"s":""}: ${deptAdmins.length?deptAdmins.join(", "):"none assigned yet"}</div>
+          </div>`;
+        }).join("");
+      } catch (err) {
+        el.innerHTML = `<div class="empty-state">${icon("alert","icon-xl")}<p>Couldn't load departments: ${err.message}</p></div>`;
       }
     };
 
@@ -408,10 +798,38 @@
     onAuthStateChanged(auth,async(user)=>{
       if(!user){window.location.href="../index.html";return;}
       const snap=await getDoc(doc(db,"users",user.uid));
-      if(!snap.exists()||snap.data().role!=="admin"){window.location.href="member.html";return;}
+      const role = snap.exists() ? snap.data().role : null;
+      if(!snap.exists()||!["superAdmin","departmentAdmin","admin"].includes(role)){window.location.href="member.html";return;}
       const u=snap.data();
+
+      myRole = (role === "admin") ? "superAdmin" : role; // backward compatibility with the old flat "admin" role
+      myDept = u.department || null;
+      myDeptName = u.departmentName || departmentName(myDept);
+
       document.getElementById("navAvatar").innerHTML=avatarHTML(u);
       document.getElementById("navName").textContent=u.name;
+
+      await loadDepartments();
+      if (!allDepartments.length) allDepartments = []; // safe default before first department exists
+
+      if (myRole === "superAdmin") {
+        document.getElementById("navRoleBadge").textContent = "Super Admin";
+        document.getElementById("navRoleBadge").className = "badge badge-superadmin";
+        document.getElementById("navBrandSub").textContent = "Super Admin Dashboard";
+        document.getElementById("pageHeaderSub").textContent = "Manage every department, meeting, and member across the church.";
+        document.getElementById("deptFilterCard").classList.remove("hidden");
+        document.getElementById("departmentsTabBtn").classList.remove("hidden");
+        const filterSel = document.getElementById("deptFilter");
+        allDepartments.forEach(d=>{ const o=document.createElement("option"); o.value=d.id; o.textContent=d.name; filterSel.appendChild(o); });
+      } else {
+        document.getElementById("navRoleBadge").textContent = `${myDeptName} Admin`;
+        document.getElementById("navRoleBadge").className = "badge badge-superadmin";
+        document.getElementById("navBrandSub").textContent = `${myDeptName} Admin Dashboard`;
+        document.getElementById("pageHeaderSub").textContent = `Manage ${myDeptName}'s meetings, members, and excuses.`;
+      }
+
+      populateMeetingScopeSelect();
+      populateAnnounceScopeSelect();
       await loadOverview();
     });
 

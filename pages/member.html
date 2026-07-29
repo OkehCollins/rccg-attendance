@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
-  <title>My Dashboard — Champions Cathedral Media Team</title>
+  <title>My Dashboard — Champions Cathedral</title>
   <meta name="theme-color" content="#0A1628"/>
 
   <link rel="icon" href="../favicon.ico" sizes="any"/>
@@ -19,7 +19,7 @@
   <nav class="navbar">
     <div class="nav-brand">
       <img class="nav-brand-logo" src="../assets/logo.png" alt="Champions Cathedral crest"/>
-      <div class="nav-brand-text"><div class="nav-brand-name">Champions Cathedral</div><div class="nav-brand-sub">Media Team Portal</div></div>
+      <div class="nav-brand-text"><div class="nav-brand-name">Champions Cathedral</div><div class="nav-brand-sub">Member Portal</div></div>
     </div>
     <div class="nav-right">
       <button class="nav-user" id="navUserBtn" onclick="openProfileModal()">
@@ -32,7 +32,13 @@
 
   <main class="main-content">
     <div class="page-header">
-      <div><h1 id="welcomeMsg">Welcome back</h1><p>Here's your attendance overview for this season.</p></div>
+      <div><h1 id="welcomeMsg">Welcome back</h1><p id="welcomeSub">Here's your attendance overview for this season.</p></div>
+    </div>
+
+    <!-- ANNOUNCEMENTS -->
+    <div class="card reveal hidden" id="announcementsCard">
+      <div class="card-header"><div><div class="card-title">📣 Announcements</div><div class="card-title-sub">For you and your department</div></div></div>
+      <div id="announcementsList"></div>
     </div>
 
     <div class="stats-row" id="statsRow">
@@ -75,17 +81,7 @@
         <span id="noMeetingIconWrap"></span>
         <p>No active meeting right now. Check back when a meeting is scheduled.</p>
       </div>
-      <div id="activeMeetingSection" class="hidden">
-        <div class="meeting-status-card">
-          <div class="meeting-live-badge"><span class="live-dot"></span> Live Meeting</div>
-          <div class="meeting-name" id="activeMeetingName">—</div>
-          <div class="meeting-meta" id="activeMeetingMeta">—</div>
-          <button class="btn-clockin" id="clockInBtn" onclick="handleClockIn()">
-            <span id="clockBtnIcon"></span> <span id="clockBtnText">Clock In</span>
-          </button>
-          <p style="font-size:12px;color:var(--white-dim);margin-top:12px;" id="clockStatus"></p>
-        </div>
-      </div>
+      <div id="activeMeetingsContainer"></div>
     </div>
 
     <div class="grid-2">
@@ -120,6 +116,14 @@
         </div>
       </div>
     </div>
+
+    <div class="card reveal">
+      <div class="card-header">
+        <div><div class="card-title" id="directoryTitle">Directory</div><div class="card-title-sub" id="directorySubtitle">People in your department</div></div>
+        <input type="text" id="directorySearch" placeholder="Search by name..." oninput="filterDirectory()" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:8px 14px;color:var(--white);font-family:Inter,sans-serif;font-size:13px;outline:none;width:200px;max-width:100%;"/>
+      </div>
+      <div class="members-grid" id="directoryGrid"><div class="empty-state">Loading…</div></div>
+    </div>
   </main>
 
   <!-- PROFILE MODAL -->
@@ -136,6 +140,7 @@
           <input type="file" id="avatarFileInput" accept="image/*" class="hidden"/>
         </div>
         <div id="modalName" style="font-weight:600;"></div>
+        <div style="font-size:12px;color:var(--white-dim);margin-top:2px;" id="modalDeptLine"></div>
         <div class="avatar-hint" id="avatarHint">JPG or PNG. We'll crop it to a square automatically.</div>
         <div class="avatar-progress hidden" id="avatarProgressWrap"><div class="avatar-progress-bar" id="avatarProgressBar"></div></div>
       </div>
@@ -156,45 +161,64 @@
     import { initReveal, staggerIn, confettiBurst, showToast, imageToSquareBlob, openModal, closeModal } from "../js/motion.js";
     import { getTodayDevotional, todayKey, DEVOTIONAL_BADGES } from "../js/devotionals.js";
 
-    let currentUser = null, currentUserData = null, activeMeeting = null, myClockRecord = null;
+    let currentUser = null, currentUserData = null;
     let devotionalDoneToday = false;
     let meetingListenerAttached = false;
+    let allDirectoryMembers = [];
 
-    async function renderActiveMeeting(meeting) {
-      if (!meeting) {
-        activeMeeting = null;
-        myClockRecord = null;
-        document.getElementById("noMeetingMsg").classList.remove("hidden");
-        document.getElementById("activeMeetingSection").classList.add("hidden");
-        return;
-      }
-      activeMeeting = meeting;
-      document.getElementById("noMeetingMsg").classList.add("hidden");
-      document.getElementById("activeMeetingSection").classList.remove("hidden");
-      document.getElementById("activeMeetingName").textContent = activeMeeting.title;
-      const st = activeMeeting.scheduledAt.toDate();
-      document.getElementById("activeMeetingMeta").textContent = `${st.toLocaleDateString("en-NG",{weekday:"long",day:"numeric",month:"long"})} · ${st.toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"})}`;
-      const btn = document.getElementById("clockInBtn");
-      btn.classList.remove("active"); btn.disabled = false;
-      document.getElementById("clockBtnText").textContent = "Clock In";
-      document.getElementById("clockStatus").textContent = "";
-      try {
-        const crQ = query(collection(db,"attendance"), where("meetingId","==",activeMeeting.id), where("userId","==",currentUser.uid));
-        const crSnap = await getDocs(crQ);
-        if (!crSnap.empty) {
-          myClockRecord = { id: crSnap.docs[0].id, ...crSnap.docs[0].data() };
-          if (myClockRecord.clockOutTime) { document.getElementById("clockBtnText").textContent = "Clocked Out"; btn.disabled = true; document.getElementById("clockStatus").textContent = "You've completed this meeting."; }
-          else { btn.classList.add("active"); document.getElementById("clockBtnText").textContent = "Clock Out"; document.getElementById("clockStatus").textContent = "You're checked in. Click to clock out when done."; }
+    // Active meetings relevant to ME: congregation-wide, or my own department.
+    // Keyed by meeting id, since more than one can be live at once.
+    let myActiveMeetings = new Map();   // id -> meeting object
+    let myClockRecords = new Map();     // id -> attendance record or null
+
+    function isMeetingRelevantToMe(meeting) {
+      if (meeting.scope === "congregation") return true;
+      return meeting.scope === "department" && meeting.department === (currentUserData.department || "general");
+    }
+
+    async function renderActiveMeetings(allActiveMeetings) {
+      const relevant = allActiveMeetings.filter(isMeetingRelevantToMe);
+      myActiveMeetings = new Map(relevant.map(m => [m.id, m]));
+      document.getElementById("noMeetingMsg").classList.toggle("hidden", relevant.length > 0);
+      const container = document.getElementById("activeMeetingsContainer");
+      if (!relevant.length) { container.innerHTML = ""; return; }
+
+      container.innerHTML = relevant.map(m => {
+        const st = m.scheduledAt.toDate();
+        const scopeLabel = m.scope === "congregation" ? "Congregation-wide" : (currentUserData.departmentName || "Department");
+        return `<div class="meeting-status-card" style="margin-bottom:16px;" id="meetingCard-${m.id}">
+          <div class="meeting-live-badge"><span class="live-dot"></span> Live · ${scopeLabel}</div>
+          <div class="meeting-name">${m.title}</div>
+          <div class="meeting-meta">${st.toLocaleDateString("en-NG",{weekday:"long",day:"numeric",month:"long"})} · ${st.toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"})}</div>
+          <button class="btn-clockin" id="clockInBtn-${m.id}" onclick="handleClockIn('${m.id}')"><span id="clockBtnIcon-${m.id}"></span> <span id="clockBtnText-${m.id}">Clock In</span></button>
+          <p style="font-size:12px;color:var(--white-dim);margin-top:12px;" id="clockStatus-${m.id}"></p>
+        </div>`;
+      }).join("");
+      relevant.forEach(m => { document.getElementById(`clockBtnIcon-${m.id}`).innerHTML = icon("clock"); });
+
+      for (const m of relevant) {
+        try {
+          const crQ = query(collection(db,"attendance"), where("meetingId","==",m.id), where("userId","==",currentUser.uid));
+          const crSnap = await getDocs(crQ);
+          const btn = document.getElementById(`clockInBtn-${m.id}`);
+          if (!crSnap.empty) {
+            const rec = { id: crSnap.docs[0].id, ...crSnap.docs[0].data() };
+            myClockRecords.set(m.id, rec);
+            if (rec.clockOutTime) { document.getElementById(`clockBtnText-${m.id}`).textContent = "Clocked Out"; btn.disabled = true; document.getElementById(`clockStatus-${m.id}`).textContent = "You've completed this meeting."; }
+            else { btn.classList.add("active"); document.getElementById(`clockBtnText-${m.id}`).textContent = "Clock Out"; document.getElementById(`clockStatus-${m.id}`).textContent = "You're checked in. Click to clock out when done."; }
+          } else {
+            myClockRecords.set(m.id, null);
+          }
+        } catch (err) {
+          const statusEl = document.getElementById(`clockStatus-${m.id}`);
+          if (statusEl) statusEl.textContent = `Couldn't check your status: ${err.message}`;
         }
-      } catch (err) {
-        document.getElementById("clockStatus").textContent = `Couldn't check your status: ${err.message}`;
       }
     }
 
     // ---------- icon injection ----------
     document.getElementById("logoutIconBtn").innerHTML = icon("logOut");
     document.getElementById("noMeetingIconWrap").innerHTML = icon("calendar", "icon-xl");
-    document.getElementById("clockBtnIcon").innerHTML = icon("clock");
     document.getElementById("flameIconWrap").innerHTML = icon("flame", "flame-icon");
     document.getElementById("devoBtnIcon").innerHTML = icon("bookOpen");
     document.getElementById("avatarEditBtn").innerHTML = icon("camera");
@@ -245,6 +269,8 @@
     window.openProfileModal = () => {
       document.getElementById("modalName").textContent = currentUserData.name;
       document.getElementById("modalEmail").textContent = currentUserData.email;
+      const deptLine = currentUserData.departmentName || "General Congregation";
+      document.getElementById("modalDeptLine").textContent = currentUserData.position ? `${currentUserData.position} · ${deptLine}` : deptLine;
       refreshAvatars();
       openModal("profileModal");
     };
@@ -293,38 +319,44 @@
       return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
     }
 
-    window.handleClockIn = async () => {
-      if (!activeMeeting || !currentUser) return;
-      const btn = document.getElementById("clockInBtn");
-      const statusEl = document.getElementById("clockStatus");
-      if (myClockRecord && myClockRecord.clockOutTime) { showToast("Already clocked in and out.","error",icon("alert")); return; }
-      if (myClockRecord && myClockRecord.clockInTime) {
+    window.handleClockIn = async (meetingId) => {
+      const meeting = myActiveMeetings.get(meetingId);
+      if (!meeting || !currentUser) return;
+      const btn = document.getElementById(`clockInBtn-${meetingId}`);
+      const statusEl = document.getElementById(`clockStatus-${meetingId}`);
+      const existing = myClockRecords.get(meetingId);
+      if (existing && existing.clockOutTime) { showToast("Already clocked in and out.","error",icon("alert")); return; }
+      if (existing && existing.clockInTime) {
         btn.disabled = true;
-        await updateDoc(doc(db,"attendance",myClockRecord.id), { clockOutTime: serverTimestamp(), duration: Math.round((Date.now()-myClockRecord.clockInTime.toDate())/60000) });
+        await updateDoc(doc(db,"attendance",existing.id), { clockOutTime: serverTimestamp(), duration: Math.round((Date.now()-existing.clockInTime.toDate())/60000) });
         showToast("Clocked out. See you next time! 🙏");
-        document.getElementById("clockBtnText").textContent = "Clocked Out"; btn.disabled = true;
+        document.getElementById(`clockBtnText-${meetingId}`).textContent = "Clocked Out"; btn.disabled = true;
         statusEl.textContent = "You've clocked out. Thank you for being here."; return;
       }
       statusEl.textContent = "Verifying your location..."; btn.disabled = true;
       if (!navigator.geolocation) { statusEl.textContent = "Location not supported."; btn.disabled=false; return; }
       navigator.geolocation.getCurrentPosition(async (pos) => {
         const {latitude,longitude} = pos.coords;
-        const dist = getDistance(latitude,longitude,activeMeeting.lat,activeMeeting.lng);
-        const maxDist = activeMeeting.radiusMeters||150;
+        const dist = getDistance(latitude,longitude,meeting.lat,meeting.lng);
+        const maxDist = meeting.radiusMeters||150;
         if (dist > maxDist) { statusEl.textContent=`You're ${Math.round(dist)}m away. Must be on-site.`; btn.disabled=false; showToast("Not at venue. Clock-in denied.","error",icon("alert")); return; }
         const now = new Date();
-        const isLate = (now - activeMeeting.scheduledAt.toDate()) > (activeMeeting.lateThresholdMinutes||15)*60000;
-        const record = await addDoc(collection(db,"attendance"), { userId:currentUser.uid, userName:currentUserData.name, meetingId:activeMeeting.id, meetingTitle:activeMeeting.title, clockInTime:serverTimestamp(), clockOutTime:null, late:isLate, lat:latitude, lng:longitude, pointsAwarded:isLate?5:10 });
+        const isLate = (now - meeting.scheduledAt.toDate()) > (meeting.lateThresholdMinutes||15)*60000;
+        const record = await addDoc(collection(db,"attendance"), {
+          userId:currentUser.uid, userName:currentUserData.name, meetingId:meeting.id, meetingTitle:meeting.title,
+          meetingScope:meeting.scope, meetingDepartment:meeting.department||null,
+          clockInTime:serverTimestamp(), clockOutTime:null, late:isLate, lat:latitude, lng:longitude, pointsAwarded:isLate?5:10
+        });
         const prevBadges = BADGE_DEFS.filter(b=>b.req(currentUserData)).map(b=>b.id);
         const newPoints=(currentUserData.points||0)+(isLate?5:10), newStreak=(currentUserData.streak||0)+1, newAttended=(currentUserData.totalAttended||0)+1;
         await updateDoc(doc(db,"users",currentUser.uid),{points:newPoints,streak:newStreak,totalAttended:newAttended});
         currentUserData={...currentUserData,points:newPoints,streak:newStreak,totalAttended:newAttended};
-        myClockRecord={id:record.id,clockInTime:Timestamp.now(),late:isLate};
+        myClockRecords.set(meetingId, {id:record.id,clockInTime:Timestamp.now(),late:isLate});
         document.getElementById("statPoints").textContent=newPoints;
         document.getElementById("statStreak").textContent=newStreak;
         document.getElementById("statAttended").textContent=newAttended;
         renderRank(newPoints);
-        btn.classList.add("active"); document.getElementById("clockBtnText").textContent="Clock Out"; btn.disabled=false;
+        btn.classList.add("active"); document.getElementById(`clockBtnText-${meetingId}`).textContent="Clock Out"; btn.disabled=false;
         statusEl.textContent = isLate ? "Clocked in (late). Punctuality earns more points." : `Clocked in at ${now.toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"})}. Welcome! +${isLate?5:10} pts`;
         showToast(isLate?"Clocked in (late) — +5 pts":"Clocked in! ✅ +10 pts");
         const rect = btn.getBoundingClientRect();
@@ -378,16 +410,81 @@
       const q=query(collection(db,"excuses"),where("userId","==",currentUser.uid),where("meetingId","==",meetingId));
       const ex=await getDocs(q);
       if(!ex.empty){showToast("Already submitted an excuse for this meeting.","error",icon("alert"));return;}
-      const meetingTitle = document.getElementById("excuseMeetingSelect").selectedOptions[0].text;
-      await addDoc(collection(db,"excuses"),{userId:currentUser.uid,userName:currentUserData.name,meetingId,meetingTitle,reason,status:"pending",submittedAt:serverTimestamp()});
+      const opt = document.getElementById("excuseMeetingSelect").selectedOptions[0];
+      const meetingTitle = opt.text;
+      const meetingScope = opt.dataset.scope;
+      const meetingDepartment = opt.dataset.department || null;
+      await addDoc(collection(db,"excuses"),{userId:currentUser.uid,userName:currentUserData.name,meetingId,meetingTitle,meetingScope,meetingDepartment,reason,status:"pending",submittedAt:serverTimestamp()});
       document.getElementById("excuseReason").value=""; document.getElementById("excuseMeetingSelect").value="";
       showToast("Excuse submitted. Waiting for admin approval.");
-      // Fire-and-forget: don't let a slow/failed email delay the member's confirmation.
       sendEmailAlert(
         `Excuse request — ${currentUserData.name}`,
         `${currentUserData.name} has submitted an excuse for "${meetingTitle}".\n\nReason given:\n${reason}\n\nReview and approve or decline it from the Excuses tab in the admin dashboard.`
       );
     };
+
+    // ---- Directory (own department only) ----
+    window.filterDirectory = () => {
+      const q = document.getElementById("directorySearch").value.toLowerCase();
+      renderDirectory(allDirectoryMembers.filter(m => m.name.toLowerCase().includes(q)));
+    };
+    function renderDirectory(members) {
+      const grid = document.getElementById("directoryGrid");
+      if (!members.length) { grid.innerHTML = `<div class="empty-state">${icon("users","icon-xl")}<p>No one else here yet.</p></div>`; return; }
+      grid.innerHTML = members.map(u => {
+        const initials = (u.name||"?").split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase();
+        const avatar = u.photoURL ? `<img src="${u.photoURL}" alt="${u.name}"/>` : initials;
+        return `<div class="member-card">
+          <div class="member-card-top">
+            <div class="avatar member-card-avatar">${avatar}</div>
+            <div style="flex:1;min-width:0;">
+              <div class="member-card-name">${u.name}</div>
+              <div class="member-card-role">${u.position || "Member"}</div>
+              ${u.isWorker ? `<span class="badge badge-worker" style="margin-top:4px;">Worker</span>` : ""}
+            </div>
+          </div>
+        </div>`;
+      }).join("");
+    }
+    async function loadDirectory() {
+      const myDept = currentUserData.department || "general";
+      document.getElementById("directoryTitle").textContent = myDept === "general" ? "Directory — General Congregation" : `Directory — ${currentUserData.departmentName}`;
+      document.getElementById("directorySubtitle").textContent = "People in your department";
+      try {
+        const snap = await getDocs(query(collection(db,"users"), where("department","==",myDept)));
+        allDirectoryMembers = snap.docs.map(d=>d.data()).filter(u=>u.uid!==currentUser.uid).sort((a,b)=>a.name.localeCompare(b.name));
+        renderDirectory(allDirectoryMembers);
+      } catch (err) {
+        document.getElementById("directoryGrid").innerHTML = `<div class="empty-state">${icon("alert","icon-xl")}<p>Couldn't load the directory: ${err.message}</p></div>`;
+      }
+    }
+
+    // ---- Announcements (congregation-wide + my department) ----
+    async function loadAnnouncements() {
+      const card = document.getElementById("announcementsCard");
+      const list = document.getElementById("announcementsList");
+      try {
+        const myDept = currentUserData.department || "general";
+        const [congSnap, deptSnap] = await Promise.all([
+          getDocs(query(collection(db,"announcements"), where("scope","==","congregation"))),
+          myDept !== "general" ? getDocs(query(collection(db,"announcements"), where("scope","==","department"), where("department","==",myDept))) : Promise.resolve({docs:[]})
+        ]);
+        const anns = [...congSnap.docs, ...deptSnap.docs].map(d=>d.data()).sort((a,b)=>(b.createdAt?.toMillis()||0)-(a.createdAt?.toMillis()||0)).slice(0,5);
+        if (!anns.length) { card.classList.add("hidden"); return; }
+        card.classList.remove("hidden");
+        list.innerHTML = anns.map(a => {
+          const date = a.createdAt ? new Date(a.createdAt.toDate()).toLocaleDateString("en-NG",{day:"numeric",month:"short"}) : "";
+          return `<div style="padding:12px 0;border-bottom:1px solid rgba(255,255,255,0.05);">
+            <div style="font-weight:600;font-size:14px;">${a.title}</div>
+            <div style="font-size:13px;color:var(--white-dim);margin-top:4px;">${a.message}</div>
+            <div style="font-size:11px;color:var(--white-dim);margin-top:6px;">${a.postedByName||"Admin"} · ${date}</div>
+          </div>`;
+        }).join("");
+      } catch (err) {
+        card.classList.add("hidden");
+        console.warn("Couldn't load announcements:", err);
+      }
+    }
 
     window.handleLogout = async () => { await signOut(auth); window.location.href="../index.html"; };
 
@@ -397,18 +494,22 @@
       const snap=await getDoc(doc(db,"users",user.uid));
       if(!snap.exists()){window.location.href="../index.html";return;}
       currentUserData=snap.data();
-      if(currentUserData.role==="admin"){window.location.href="admin.html";return;}
+      if(["superAdmin","departmentAdmin","admin"].includes(currentUserData.role)){window.location.href="admin.html";return;}
 
       refreshAvatars();
       document.getElementById("navName").textContent=currentUserData.name;
-      document.getElementById("navRole").textContent=currentUserData.mediaRole||"Member";
+      document.getElementById("navRole").textContent=currentUserData.position || currentUserData.departmentName || "Member";
       document.getElementById("welcomeMsg").textContent=`Welcome back, ${currentUserData.name.split(" ")[0]}`;
+      document.getElementById("welcomeSub").textContent = currentUserData.departmentName ? `${currentUserData.departmentName} · Here's your attendance overview for this season.` : "Here's your attendance overview for this season.";
       document.getElementById("statAttended").textContent=currentUserData.totalAttended||0;
       document.getElementById("statMissed").textContent=currentUserData.totalMissed||0;
       document.getElementById("statPoints").textContent=currentUserData.points||0;
       document.getElementById("statStreak").textContent=currentUserData.streak||0;
       renderRank(currentUserData.points||0);
       renderBadges(currentUserData);
+
+      loadAnnouncements();
+      loadDirectory();
 
       // ---- devotional (always renders text locally; Firestore only checks today's log) ----
       const devo = getTodayDevotional();
@@ -429,23 +530,24 @@
         console.error("Devotional status check failed:", err);
       }
 
-      // ---- active meeting: realtime, so a meeting the admin starts appears without a refresh ----
+      // ---- active meetings: realtime, church-wide list filtered down to what's relevant to me ----
       if (!meetingListenerAttached) {
         meetingListenerAttached = true;
         onSnapshot(query(collection(db,"meetings"), where("status","==","active")), (activeSnap) => {
-          renderActiveMeeting(activeSnap.empty ? null : { id: activeSnap.docs[0].id, ...activeSnap.docs[0].data() });
+          renderActiveMeetings(activeSnap.docs.map(d => ({ id: d.id, ...d.data() })));
         }, (err) => {
           document.getElementById("noMeetingMsg").querySelector("p").textContent = `Couldn't check for a live meeting: ${err.message}`;
         });
       }
 
-      // ---- upcoming meetings for the excuse dropdown (sorted client-side — no composite index needed) ----
+      // ---- upcoming meetings relevant to me, for the excuse dropdown (sorted client-side — no composite index needed) ----
       try {
+        const myDept = currentUserData.department || "general";
         const upSnap=await getDocs(query(collection(db,"meetings"),where("status","==","upcoming")));
-        const upcoming = upSnap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>a.scheduledAt.toMillis()-b.scheduledAt.toMillis());
+        const upcoming = upSnap.docs.map(d=>({id:d.id,...d.data()})).filter(isMeetingRelevantToMe).sort((a,b)=>a.scheduledAt.toMillis()-b.scheduledAt.toMillis());
         const sel=document.getElementById("excuseMeetingSelect");
         sel.innerHTML='<option value="">Select upcoming meeting</option>';
-        upcoming.forEach(m=>{const o=document.createElement("option");o.value=m.id;o.textContent=`${m.title} — ${new Date(m.scheduledAt.toDate()).toLocaleDateString("en-NG",{weekday:"short",day:"numeric",month:"short"})}`;sel.appendChild(o);});
+        upcoming.forEach(m=>{const o=document.createElement("option");o.value=m.id;o.textContent=`${m.title} — ${new Date(m.scheduledAt.toDate()).toLocaleDateString("en-NG",{weekday:"short",day:"numeric",month:"short"})}`;o.dataset.scope=m.scope;o.dataset.department=m.department||"";sel.appendChild(o);});
       } catch (err) {
         showToast("Couldn't load upcoming meetings.", "error", icon("alert"));
       }

@@ -1,36 +1,60 @@
-# RCCG Champions Cathedral — Media Team Portal
+# RCCG Champions Cathedral — Member Portal
 ## Setup Guide (Read This First)
 
 ---
 
 ## WHAT CHANGED IN THIS VERSION
 
-- **Profile photos now use Cloudinary, not Firebase Storage** — Storage
-  requires the paid Blaze plan even for free-tier usage; Cloudinary doesn't.
-- **Fixed: Members tab and Leaderboard tab could silently fail to load.**
-  Both queries combined a filter with a sort on a different field, which
-  Firestore requires a manual "composite index" for — one that never
-  existed in this project, so the query quietly errored out and the tab
-  stayed empty. Both now sort in the browser instead, so no index is needed.
-- **Fixed: a meeting the admin starts now appears on members' dashboards
-  automatically**, without needing a page refresh (uses a live Firestore
-  listener instead of a one-time page-load check). The admin's own
-  "Active Meeting" card updates live the same way.
-- **Added resilience:** every dashboard section now fails on its own if a
-  query has a problem, instead of one failure freezing the whole page —
-  and shows the actual error message inline so it's easy to diagnose.
-- **Added six new media team roles** to registration (see below).
-- **Added a service worker** — the app now works offline (once opened at
-  least once) and is installable as an app icon on Android/desktop, not
-  just iOS. See "PWA & OFFLINE SUPPORT" below — there's one important habit
-  to build when you update the site in future: bump the version number in
-  `sw.js`, or visitors will keep seeing the old cached version.
-- **Added admin notifications** — an email now goes out the moment a
-  member submits an excuse, and again the moment someone crosses 2 missed
-  meetings (only once per person, not on every miss after that). No
-  backend or Blaze plan involved — see "NOTIFICATIONS" below. The admin
-  dashboard also now shows the same two events as live in-app toasts and
-  live badge counts, no reload needed.
+### The big one: departments, directory, and church-wide roll-out
+
+This app started as a media-team-only tool. It's now built to serve the
+whole church:
+
+- **Departments replace the fixed media-team role list.** Registration now
+  asks for a department (dynamic — whatever you've created, plus a
+  built-in "General Congregation" for anyone not on a serving team) and
+  whether they're an active worker/volunteer there, with an optional free-text
+  position (e.g. "Choir Director").
+- **Two tiers of meeting.** A **Congregation-wide Service** (created only by
+  the super admin — Sunday service, midweek service) is checked into by
+  everyone. A **department meeting** (choir rehearsal, media team meeting)
+  is only checked into by that department. A member's dashboard shows
+  whichever of these is currently live and relevant to them — possibly both
+  at once.
+- **Three roles now, not two:** Member, Department Admin (scoped to one
+  department — their own meetings, members, excuses, leaderboard), and
+  Super Admin (everything, everywhere, plus a new **Departments** tab to
+  create departments and a department filter to browse any one of them).
+  The old flat "admin" role still works exactly as before — it's treated
+  identically to Super Admin everywhere in the app.
+- **Directory.** Every member can browse everyone else in their own
+  department — name, photo, position, worker status — from their dashboard.
+  Nobody can browse a department they're not in.
+- **Announcements.** Admins post updates — church-wide (super admin) or to
+  one department (either admin type) — and they show up live on every
+  relevant member's dashboard.
+- **A one-time migration tool** (Departments tab → "Fix Old Accounts")
+  handles the one real gotcha of this upgrade: accounts that existed before
+  today have no department at all, so they're invisible to every
+  department-scoped query until this runs once.
+- **Security rules rewritten** end-to-end around this role/department
+  model — see Step 8. Nobody can self-promote, move themselves between
+  departments, or read another department's people/meetings/excuses.
+
+### Everything from before this still applies
+- Profile photos use Cloudinary, not Firebase Storage (Storage now requires
+  the paid Blaze plan even for free-tier usage; Cloudinary doesn't).
+- Members/Leaderboard tabs sort in the browser instead of in the Firestore
+  query, so no composite index is ever required.
+- A live meeting appears on members' dashboards instantly, no refresh.
+- Every dashboard section fails on its own with a visible error message,
+  instead of one bad query freezing the whole page.
+- A service worker makes the app installable and gives it basic offline
+  support — bump `CACHE_VERSION` in `sw.js` whenever you update any file,
+  or visitors keep seeing the old cached version. See "PWA & OFFLINE SUPPORT".
+- Admin gets an email (via EmailJS, no backend/Blaze needed) the moment a
+  member submits an excuse, or the moment someone crosses 2 missed
+  meetings — plus the same two events as live in-app toasts. See "NOTIFICATIONS".
 
 ---
 
@@ -132,29 +156,76 @@ In Firebase → Firestore → Rules tab, paste this:
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    function isSignedIn() { return request.auth != null; }
+    function myData() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+    function myRole() { return isSignedIn() ? myData().role : null; }
+    function myDept() { return isSignedIn() ? myData().department : null; }
+    // "admin" is the old, pre-department role name — treated the same as
+    // superAdmin so an account that existed before this update still works.
+    function isSuperAdmin() { return myRole() == 'superAdmin' || myRole() == 'admin'; }
+    function isDeptAdminOf(dept) { return myRole() == 'departmentAdmin' && myDept() == dept; }
+
+    match /departments/{deptId} {
+      // Public read: the registration page needs this before anyone logs in.
+      allow read: if true;
+      allow write: if isSuperAdmin();
+    }
+
     match /users/{userId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth.uid == userId ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+      // Self, any super admin, or anyone in the same department (this is what
+      // powers each member's own-department directory).
+      allow read: if isSignedIn() && (request.auth.uid == userId || isSuperAdmin() || myDept() == resource.data.department);
+      // Registering always starts as a plain "member" — nobody can self-promote.
+      allow create: if request.auth.uid == userId && request.resource.data.role == 'member';
+      // A super admin can edit anyone. A department admin can edit members in
+      // their own department, but can't touch role/department (only a super
+      // admin promotes someone or moves them between departments). A member
+      // can edit their own doc (photo, position, etc.) but can't touch
+      // role/department on themselves either.
+      allow update: if isSuperAdmin()
+        || (isDeptAdminOf(resource.data.department)
+            && request.resource.data.role == resource.data.role
+            && request.resource.data.department == resource.data.department)
+        || (request.auth.uid == userId
+            && request.resource.data.role == resource.data.role
+            && request.resource.data.department == resource.data.department);
+      allow delete: if isSuperAdmin();
     }
+
     match /meetings/{meetingId} {
-      allow read: if request.auth != null;
-      allow write: if get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+      // Congregation-wide meetings are visible to everyone; department
+      // meetings are only visible within that department (or to a super admin).
+      allow read: if isSignedIn() && (isSuperAdmin() || resource.data.scope == 'congregation' || myDept() == resource.data.department);
+      allow create: if isSuperAdmin() || (isDeptAdminOf(request.resource.data.department) && request.resource.data.scope == 'department');
+      allow update, delete: if isSuperAdmin() || isDeptAdminOf(resource.data.department);
     }
-    match /attendance/{docId} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null;
-      allow update: if request.auth.uid == resource.data.userId ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+
+    match /attendance/{attId} {
+      allow read: if isSignedIn() && (request.auth.uid == resource.data.userId || isSuperAdmin() || myDept() == resource.data.meetingDepartment);
+      // Can only clock into a meeting that's actually live right now.
+      allow create: if isSignedIn() && request.auth.uid == request.resource.data.userId
+        && get(/databases/$(database)/documents/meetings/$(request.resource.data.meetingId)).data.status == 'active';
+      allow update: if isSignedIn() && request.auth.uid == resource.data.userId;
+      allow delete: if isSuperAdmin();
     }
-    match /excuses/{docId} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null;
-      allow update: if get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+
+    match /excuses/{excuseId} {
+      allow read: if isSignedIn() && (request.auth.uid == resource.data.userId || isSuperAdmin() || myDept() == resource.data.meetingDepartment);
+      allow create: if isSignedIn() && request.auth.uid == request.resource.data.userId;
+      allow update: if isSuperAdmin() || isDeptAdminOf(resource.data.meetingDepartment);
+      allow delete: if isSuperAdmin();
     }
-    match /devotionalLogs/{docId} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+
+    match /announcements/{announcementId} {
+      allow read: if isSignedIn();
+      allow create: if isSuperAdmin() || (isDeptAdminOf(request.resource.data.department) && request.resource.data.scope == 'department');
+      allow delete: if isSuperAdmin() || isDeptAdminOf(resource.data.department);
+    }
+
+    match /devotionalLogs/{logId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
       allow update, delete: if false;
     }
   }
@@ -163,15 +234,21 @@ service cloud.firestore {
 
 Click Publish.
 
+**Worth knowing:** these rules protect the things that actually matter — nobody can self-promote to admin, move themselves between departments, or read another department's members/meetings/excuses. They do *not* stop a member from tampering with their own points/streak via direct API calls (same trust level as before this update) — reasonable for a small volunteer/congregation tool, not something you'd want for a system with real money or legal stakes attached.
+
 ---
 
-## STEP 9: Make Yourself Admin
+## STEP 9: Make Yourself Super Admin
 
-1. Open index.html, register your account
+1. Open index.html, register your account (pick "General Congregation" — it doesn't matter, this changes next)
 2. Go to Firebase → Firestore → users collection
 3. Find your document (your UID is the document ID)
-4. Edit the "role" field: change "member" to "admin"
-5. Save. You'll now land on the Admin Dashboard on login.
+4. Edit the "role" field: change "member" to "superAdmin"
+5. Save. You'll now land on the Super Admin Dashboard on login, with every tab unlocked including Departments.
+
+**If you already had an "admin" account from before this update:** it still works exactly as before — "admin" is treated identically to "superAdmin" everywhere in the app. You can leave it as "admin" or manually change it to "superAdmin" for clarity; either works.
+
+**Your very first real step as super admin:** go to the **Departments** tab and click **"Fix Old Accounts"** once. Every account created before this update has no department set at all, so none of them will show up anywhere — not even under "General Congregation" — until this runs. It's safe to click more than once; it only touches accounts still missing a department, and automatically carries over any old media-team role text into their new "position" field.
 
 ---
 
@@ -205,23 +282,33 @@ rccg-attendance/
 │   ├── logo.png              ← RCCG crest (navbar + login)
 │   └── favicon-*.png / apple-touch-icon.png
 ├── pages/
-│   ├── member.html          ← Member dashboard
-│   └── admin.html           ← Admin dashboard
+│   ├── member.html          ← Member dashboard, directory, announcements
+│   └── admin.html           ← Admin dashboard (scoped by role — Super Admin or Department Admin)
 └── README.md                ← This file
 ```
 
 ---
 
-## MEDIA TEAM ROLES
+## DEPARTMENTS, ROLES & PERMISSIONS
 
-Shown on the registration form's "Role on Media Team" dropdown:
+**Departments** are created by the super admin (Departments tab). "General
+Congregation" always exists automatically — it's for anyone not on a
+serving team, and needs no setup. Everyone picks exactly one department
+at registration (or "General Congregation"), plus an optional free-text
+**position** (e.g. "Camera Operator", "Choir Director", "Head Usher") and
+whether they're an active **worker/volunteer** there.
 
-Camera Operator · Videography · Sound Engineer · Live Stream Operator ·
-Graphics & Display · Photography · Video Editor · Reels · Content Creator ·
-Content Curator · Content Strategist · Social Media · Anchor ·
-Media Director · Other
+**Three access levels:**
 
-To add more later, edit the `<select id="regRole">` list in `index.html`.
+| Role | Sees |
+|---|---|
+| Member | Their own stats, their own department's directory, congregation + own-department meetings/announcements |
+| Department Admin | Everything above, plus: manage their department's meetings, members, excuses, leaderboard, announcements |
+| Super Admin | Everything, everywhere. Plus: create departments, promote members to Department Admin, create congregation-wide Services, browse any department |
+
+To promote someone to Department Admin: Members tab → find them → Edit →
+set their Department and change Access Level to "Department Admin." Only
+a super admin can do this (or grant/revoke Super Admin itself).
 
 ---
 
@@ -300,21 +387,32 @@ the same practical result for free.
 
 ## NOTIFICATIONS
 
-Two things happen automatically, both without any backend or Blaze plan:
+Three things happen automatically, all without any backend or Blaze plan:
 
-1. **Email to the admin** (via EmailJS — Step 5) when:
+1. **Email to EmailJS's configured inbox** (Step 5) when:
    - A member submits an excuse request
    - A member crosses 2 missed meetings for the first time (not again on
      the 3rd, 4th miss, etc. — you're already tracking them by then)
-2. **Live in-app alerts** on the admin dashboard — a toast pops up and the
-   Overview tab's numbers update the instant either of those happens,
-   as long as the dashboard is open in a browser tab somewhere. No reload
-   needed.
 
-**The honest limitation:** both of these only fire because they're
+   Both of these fire regardless of department — EmailJS is configured
+   once, church-wide, so every excuse and every newly-flagged member reaches
+   that one inbox. There's no per-department email routing built here; if
+   you want department admins emailed only about their own department,
+   that's a further change, not something this version does.
+2. **Live in-app alerts** on the admin dashboard — a toast pops up and the
+   Overview tab's numbers update the instant either of those happens, as
+   long as the dashboard is open in a browser tab somewhere. These *are*
+   correctly scoped by the security rules — a department admin's toast
+   feed only ever includes their own department; a super admin sees
+   everything. No reload needed either way.
+3. **Announcements** — not automatic, but the closest thing to a
+   "broadcast": an admin posts once, and it shows up live on every
+   relevant member's dashboard (Announcements tab, in admin.html).
+
+**The honest limitation:** all of these only fire because they're
 triggered by someone's browser already being open and doing something
-(a member submitting an excuse, or you ending a meeting). Nothing runs
-in the background on a server. That means:
+(a member submitting an excuse, an admin ending a meeting or posting an
+announcement). Nothing runs in the background on a server. That means:
 - ✅ "Email me when X happens" → covered, exactly as built
 - ❌ "Email me every Monday with a weekly summary, whether or not anyone
   opened the app that day" → would need a scheduled server job, which
@@ -322,7 +420,8 @@ in the background on a server. That means:
 
 If EmailJS isn't configured yet (`js/emailjs-config.js` still has the
 placeholder values), emails are silently skipped — logged to the browser
-console, nothing else breaks. The in-app toasts work either way.
+console, nothing else breaks. The in-app toasts and announcements work
+either way.
 
 ---
 

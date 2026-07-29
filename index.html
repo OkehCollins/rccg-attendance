@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
-  <title>RCCG Champions Cathedral — Media Team</title>
+  <title>RCCG Champions Cathedral — Member Portal</title>
   <meta name="theme-color" content="#0A1628"/>
-  <meta name="description" content="Media Team attendance, points, streaks and daily devotionals for RCCG Champions Cathedral, Warri."/>
+  <meta name="description" content="Attendance, directory, points, streaks and daily devotionals for RCCG Champions Cathedral, Warri."/>
 
   <link rel="icon" href="favicon.ico" sizes="any"/>
   <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png"/>
@@ -29,13 +29,13 @@
       <div class="brand">
         <img class="brand-logo" src="assets/logo.png" alt="RCCG Champions Cathedral crest"/>
         <h1 class="brand-name">Champions Cathedral</h1>
-        <p class="brand-sub">Media Team Portal</p>
+        <p class="brand-sub">Member Portal</p>
       </div>
 
       <div class="form-panel">
         <div id="loginForm">
           <h2 class="form-title">Welcome Back</h2>
-          <p class="form-sub">Sign in to your team account</p>
+          <p class="form-sub">Sign in to your member account</p>
           <div class="form-group">
             <label>Email Address</label>
             <input type="email" id="loginEmail" placeholder="you@example.com" autocomplete="email"/>
@@ -52,12 +52,12 @@
           </div>
           <div id="loginError" class="error-msg hidden"></div>
           <button class="btn-primary" onclick="handleLogin()"><span>Sign In</span><span class="btn-icon">→</span></button>
-          <p class="form-switch">New to the team? <a onclick="toggleForms('register')">Request Access</a></p>
+          <p class="form-switch">New here? <a onclick="toggleForms('register')">Request Access</a></p>
         </div>
 
         <div id="registerForm" class="hidden">
-          <h2 class="form-title">Join the Team</h2>
-          <p class="form-sub">Create your media team account</p>
+          <h2 class="form-title">Join the Church Portal</h2>
+          <p class="form-sub">Create your member account</p>
           <div class="form-group">
             <label>Full Name</label>
             <input type="text" id="regName" placeholder="e.g. Chukwuemeka Obi" autocomplete="name"/>
@@ -71,25 +71,20 @@
             <input type="tel" id="regPhone" placeholder="+234 800 000 0000" autocomplete="tel"/>
           </div>
           <div class="form-group">
-            <label>Role on Media Team</label>
-            <select id="regRole">
-              <option value="">Select your role</option>
-              <option>Camera Operator</option>
-              <option>Videography</option>
-              <option>Sound Engineer</option>
-              <option>Live Stream Operator</option>
-              <option>Graphics & Display</option>
-              <option>Photography</option>
-              <option>Video Editor</option>
-              <option>Reels</option>
-              <option>Content Creator</option>
-              <option>Content Curator</option>
-              <option>Content Strategist</option>
-              <option>Social Media</option>
-              <option>Anchor</option>
-              <option>Media Director</option>
-              <option>Other</option>
+            <label>Department</label>
+            <select id="regDepartment" onchange="onDepartmentChange()">
+              <option value="general">General Congregation (not attached to a department)</option>
             </select>
+          </div>
+          <div class="form-group hidden" id="workerToggleGroup">
+            <label class="checkbox-row">
+              <input type="checkbox" id="regIsWorker" checked/>
+              <span>I actively serve as a worker/volunteer in this department</span>
+            </label>
+          </div>
+          <div class="form-group">
+            <label>Position / Role (optional)</label>
+            <input type="text" id="regPosition" placeholder="e.g. Camera Operator, Choir Director, Head Usher"/>
           </div>
           <div class="form-group">
             <label>Password</label>
@@ -125,17 +120,48 @@
     import { auth, db } from "./js/firebase-config.js";
     import { signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, sendPasswordResetEmail }
       from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-    import { doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+    import { doc, setDoc, getDoc, getDocs, collection, query, orderBy }
+      from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
     import { icon } from "./js/icons.js";
+
+    // "admin" is the old, pre-department role name — treated the same as
+    // superAdmin so an existing account doesn't get locked out after this update.
+    const ADMIN_ROLES = ["superAdmin", "departmentAdmin", "admin"];
 
     onAuthStateChanged(auth, async (user) => {
       if (user) {
         const snap = await getDoc(doc(db, "users", user.uid));
         if (snap.exists()) {
-          window.location.href = snap.data().role === "admin" ? "pages/admin.html" : "pages/member.html";
+          window.location.href = ADMIN_ROLES.includes(snap.data().role) ? "pages/admin.html" : "pages/member.html";
         }
       }
     });
+
+    // Populate the department dropdown. "General Congregation" is always
+    // present even before any department has been created (unauthenticated
+    // read — department names aren't sensitive, so this works pre-login).
+    async function loadDepartmentOptions() {
+      try {
+        const snap = await getDocs(query(collection(db, "departments"), orderBy("name")));
+        const sel = document.getElementById("regDepartment");
+        snap.forEach((d) => {
+          const opt = document.createElement("option");
+          opt.value = d.id;
+          opt.textContent = d.data().name;
+          sel.appendChild(opt);
+        });
+      } catch (err) {
+        console.warn("Couldn't load departments (this is fine before any exist):", err);
+      }
+    }
+    loadDepartmentOptions();
+
+    window.onDepartmentChange = () => {
+      const isGeneral = document.getElementById("regDepartment").value === "general";
+      document.getElementById("workerToggleGroup").classList.toggle("hidden", isGeneral);
+      if (isGeneral) document.getElementById("regIsWorker").checked = false;
+      else document.getElementById("regIsWorker").checked = true;
+    };
 
     window.handleLogin = async () => {
       const email = document.getElementById("loginEmail").value.trim();
@@ -158,19 +184,23 @@
       const name = document.getElementById("regName").value.trim();
       const email = document.getElementById("regEmail").value.trim();
       const phone = document.getElementById("regPhone").value.trim();
-      const mediaRole = document.getElementById("regRole").value;
+      const department = document.getElementById("regDepartment").value;
+      const departmentName = document.getElementById("regDepartment").selectedOptions[0].text;
+      const isWorker = department === "general" ? false : document.getElementById("regIsWorker").checked;
+      const position = document.getElementById("regPosition").value.trim();
       const password = document.getElementById("regPassword").value;
       const errEl = document.getElementById("registerError");
       const succEl = document.getElementById("registerSuccess");
       errEl.classList.add("hidden"); succEl.classList.add("hidden");
-      if (!name || !email || !phone || !mediaRole || !password) { errEl.textContent = "Please fill in all fields."; errEl.classList.remove("hidden"); return; }
+      if (!name || !email || !phone || !department || !password) { errEl.textContent = "Please fill in all fields."; errEl.classList.remove("hidden"); return; }
       if (password.length < 6) { errEl.textContent = "Password must be at least 6 characters."; errEl.classList.remove("hidden"); return; }
       try {
         const btn = document.querySelector("#registerForm .btn-primary");
         btn.innerHTML = '<span>Creating account...</span>'; btn.disabled = true;
         const cred = await createUserWithEmailAndPassword(auth, email, password);
         await setDoc(doc(db, "users", cred.user.uid), {
-          uid: cred.user.uid, name, email, phone, mediaRole,
+          uid: cred.user.uid, name, email, phone,
+          department, departmentName, isWorker, position,
           role: "member", points: 0, streak: 0, totalAttended: 0, totalMissed: 0,
           devotionalStreak: 0, devotionalLongestStreak: 0, totalDevotionals: 0, lastDevotionalDate: null,
           photoURL: null,
