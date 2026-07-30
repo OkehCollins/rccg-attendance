@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+  <title>Platform Setup — ChurchTrack</title>
+  <meta name="theme-color" content="#0A1628"/>
+  <meta name="robots" content="noindex,nofollow"/>
+
+  <link rel="icon" href="../favicon.ico" sizes="any"/>
+  <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png"/>
+  <link rel="apple-touch-icon" href="../assets/apple-touch-icon.png"/>
+  <link rel="manifest" href="../manifest.webmanifest"/>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="../css/style.css"/>
+</head>
+<body class="auth-page">
+  <div class="auth-bg">
+    <div class="auth-overlay"></div>
+    <div class="cross-pattern"></div>
+    <div class="auth-orb o1"></div>
+    <div class="auth-orb o2"></div>
+  </div>
+  <div class="auth-container">
+    <div class="auth-card">
+      <div class="brand">
+        <img class="brand-logo" src="../assets/logo.png" alt="ChurchTrack crest"/>
+        <h1 class="brand-name">ChurchTrack</h1>
+        <p class="brand-sub">Platform Setup</p>
+      </div>
+
+      <div class="form-panel">
+
+        <!-- Checking whether this has already been used -->
+        <div id="checkingState">
+          <p class="form-sub" style="text-align:center;">Checking setup status…</p>
+        </div>
+
+        <!-- Already bootstrapped — nothing more to do here, ever -->
+        <div id="doneState" class="hidden">
+          <h2 class="form-title">Already Set Up</h2>
+          <p class="form-sub">A Platform Admin account already exists for ChurchTrack. This page only ever works once, and that's already happened — this isn't a bug, it's the point.</p>
+          <button class="btn-primary" onclick="window.location.href='../index.html'"><span>Go to Sign In</span></button>
+        </div>
+
+        <!-- The one-time form -->
+        <div id="setupState" class="hidden">
+          <h2 class="form-title">One-Time Platform Setup</h2>
+          <p class="form-sub">This creates the single Platform Admin account — the one that can onboard new churches. It can only ever be completed once. Do this now, right after deploying, before anyone else stumbles onto this page.</p>
+
+          <div class="form-group">
+            <label>Your Name</label>
+            <input type="text" id="setupName" placeholder="e.g. Collins Okeh" autocomplete="name"/>
+          </div>
+          <div class="form-group">
+            <label>Email Address</label>
+            <input type="email" id="setupEmail" placeholder="you@example.com" autocomplete="email"/>
+          </div>
+          <div class="form-group">
+            <label>Password</label>
+            <div class="password-field">
+              <input type="password" id="setupPassword" placeholder="Min. 6 characters" autocomplete="new-password"/>
+              <button type="button" class="pw-toggle" data-target="setupPassword" aria-label="Show password"></button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Setup Key</label>
+            <input type="password" id="setupKey" placeholder="From js/platform-setup-config.js" autocomplete="off"/>
+          </div>
+          <div id="setupError" class="error-msg hidden"></div>
+          <div id="setupSuccess" class="success-msg hidden"></div>
+          <button class="btn-primary" id="setupBtn" onclick="handleSetup()"><span>Create Platform Admin Account</span></button>
+        </div>
+
+      </div>
+    </div>
+    <p class="auth-footer">ChurchTrack — Platform Setup</p>
+  </div>
+
+  <script type="module">
+    import { auth, db } from "../js/firebase-config.js";
+    import { PLATFORM_SETUP_KEY } from "../js/platform-setup-config.js";
+    import { createUserWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+    import { doc, getDoc, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+    import { icon } from "../js/icons.js";
+
+    // Whether the one-time bootstrap has already happened lives at
+    // platformMeta/bootstrap. Firestore rules make this doc create-once,
+    // update-never — so its mere existence is the permanent lock, not a
+    // flag we have to trust the client to check honestly. Even if someone
+    // skips this UI check entirely, the write below will still be refused
+    // by the rules once the doc exists.
+    async function checkStatus() {
+      try {
+        const snap = await getDoc(doc(db, "platformMeta", "bootstrap"));
+        document.getElementById("checkingState").classList.add("hidden");
+        if (snap.exists()) {
+          document.getElementById("doneState").classList.remove("hidden");
+        } else {
+          document.getElementById("setupState").classList.remove("hidden");
+        }
+      } catch (err) {
+        document.getElementById("checkingState").innerHTML =
+          `<div class="error-msg">Couldn't check setup status: ${err.message}</div>`;
+      }
+    }
+    checkStatus();
+
+    window.handleSetup = async () => {
+      const name = document.getElementById("setupName").value.trim();
+      const email = document.getElementById("setupEmail").value.trim();
+      const password = document.getElementById("setupPassword").value;
+      const key = document.getElementById("setupKey").value;
+      const errEl = document.getElementById("setupError");
+      const succEl = document.getElementById("setupSuccess");
+      errEl.classList.add("hidden"); succEl.classList.add("hidden");
+
+      if (!name || !email || !password || !key) {
+        errEl.textContent = "Please fill in every field."; errEl.classList.remove("hidden"); return;
+      }
+      if (password.length < 6) {
+        errEl.textContent = "Password must be at least 6 characters."; errEl.classList.remove("hidden"); return;
+      }
+      if (PLATFORM_SETUP_KEY === "PICK_A_PRIVATE_PHRASE") {
+        errEl.textContent = "The setup key in js/platform-setup-config.js is still the placeholder — edit that file first.";
+        errEl.classList.remove("hidden"); return;
+      }
+      if (key !== PLATFORM_SETUP_KEY) {
+        errEl.textContent = "Setup key doesn't match."; errEl.classList.remove("hidden"); return;
+      }
+
+      const btn = document.getElementById("setupBtn");
+      btn.innerHTML = "<span>Creating account...</span>"; btn.disabled = true;
+
+      let cred;
+      try {
+        cred = await createUserWithEmailAndPassword(auth, email, password);
+      } catch (e) {
+        btn.innerHTML = "<span>Create Platform Admin Account</span>"; btn.disabled = false;
+        errEl.textContent = e.message.includes("email-already-in-use") ? "That email is already registered." : `Couldn't create the account: ${e.message}`;
+        errEl.classList.remove("hidden");
+        return;
+      }
+
+      // Both writes go in one atomic batch. The security rules only allow
+      // the platformAdmin user-doc write and the platformMeta/bootstrap
+      // doc write to succeed TOGETHER, and only if platformMeta/bootstrap
+      // doesn't already exist — so a second person racing this same page
+      // (or retrying after a partial failure) can never end up with two
+      // platform admins.
+      try {
+        const batch = writeBatch(db);
+        batch.set(doc(db, "users", cred.user.uid), {
+          uid: cred.user.uid, name, email,
+          role: "platformAdmin",
+          createdAt: new Date().toISOString(),
+        });
+        batch.set(doc(db, "platformMeta", "bootstrap"), {
+          bootstrappedBy: cred.user.uid,
+          bootstrappedAt: new Date().toISOString(),
+        });
+        await batch.commit();
+        succEl.textContent = "Platform Admin account created. Redirecting to your dashboard...";
+        succEl.classList.remove("hidden");
+        setTimeout(() => { window.location.href = "platform.html"; }, 1200);
+      } catch (e) {
+        // The Auth account exists but has no Firestore doc and no
+        // privileges — harmless, just an orphaned login. This only
+        // happens if someone else's setup attempt won the race.
+        await signOut(auth).catch(() => {});
+        btn.innerHTML = "<span>Create Platform Admin Account</span>"; btn.disabled = false;
+        errEl.textContent = "Someone already completed platform setup a moment before you. This page is now permanently locked — go to Sign In instead.";
+        errEl.classList.remove("hidden");
+      }
+    };
+
+    document.querySelectorAll(".pw-toggle").forEach((btn) => {
+      btn.innerHTML = icon("eye");
+      btn.addEventListener("click", () => {
+        const input = document.getElementById(btn.dataset.target);
+        const show = input.type === "password";
+        input.type = show ? "text" : "password";
+        btn.innerHTML = icon(show ? "eyeOff" : "eye");
+      });
+    });
+  </script>
+</body>
+</html>

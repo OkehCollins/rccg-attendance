@@ -44,6 +44,7 @@
           </div>
           <div id="gateError" class="error-msg hidden"></div>
           <button class="btn-primary" onclick="confirmChurch()"><span>Continue</span><span class="btn-icon">→</span></button>
+          <p class="form-switch"><a onclick="platformAdminLogin()">Platform admin? Sign in directly</a></p>
         </div>
 
         <div id="churchConfirmed" class="hidden">
@@ -193,10 +194,22 @@
       loadDepartmentOptions(selectedChurchId);
     };
 
+    // The platform admin (Collins) doesn't belong to any church, so the
+    // "pick your church" gate doesn't apply to them — this jumps straight
+    // to the login form. onAuthStateChanged below still does the real
+    // routing once they're actually signed in.
+    window.platformAdminLogin = () => {
+      document.getElementById("brandSub").textContent = "Platform Admin Sign In";
+      document.getElementById("churchGate").classList.add("hidden");
+      document.getElementById("registerForm").classList.add("hidden");
+      document.getElementById("loginForm").classList.remove("hidden");
+    };
+
     window.clearChurch = () => {
       selectedChurchId = null;
       selectedChurchName = null;
       document.getElementById("brandName").textContent = "ChurchTrack";
+      document.getElementById("brandSub").textContent = "Member Portal";
       document.getElementById("authFooter").textContent = "ChurchTrack";
       document.getElementById("churchConfirmed").classList.add("hidden");
       document.getElementById("loginForm").classList.add("hidden");
@@ -211,6 +224,10 @@
           const snap = await getDoc(doc(db, "users", user.uid));
           if (snap.exists()) {
             const u = snap.data();
+            // Platform admin belongs to no church at all — route them
+            // straight to their own dashboard before the church lookup
+            // below (which needs a churchId they don't have).
+            if (u.role === "platformAdmin") { window.location.href = "pages/platform.html"; return; }
             const churchSnap = await getDoc(doc(db, "churches", u.churchId));
             if (churchSnap.exists() && churchSnap.data().active === false) {
               await signOut(auth);

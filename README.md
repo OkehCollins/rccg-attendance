@@ -41,6 +41,19 @@ whole church:
   model — see Step 8. Nobody can self-promote, move themselves between
   departments, or read another department's people/meetings/excuses.
 
+### Fixed: there was no way to ever sign up a new church
+
+The Platform Dashboard (`pages/platform.html`) — the screen that creates a
+new church and hands out its sign-up link — has been in this codebase for a
+while, but nothing could ever grant the `platformAdmin` role it requires, so
+the page was permanently unreachable for everyone, including you. Two new
+files close that gap: `pages/platform-setup.html`, a one-time page that
+creates your Platform Admin account exactly once and then locks itself
+forever, and `js/platform-setup-config.js`, where you set a private setup
+phrase. See **Step 9** below — do this right after your first deploy. Along
+the way, the old Firestore rule that let anyone self-register with *any*
+role (not just `member`) via devtools was also closed — see Step 8.
+
 ### Everything from before this still applies
 - Profile photos use Cloudinary, not Firebase Storage (Storage now requires
   the paid Blaze plan even for free-tier usage; Cloudinary doesn't).
@@ -129,7 +142,7 @@ You'll paste all three values into `js/emailjs-config.js` in Step 7 below.
 
 ---
 
-## STEP 7: Paste Your Config (THREE files, one time each)
+## STEP 7: Paste Your Config (THREE files now, a fourth in Step 9)
 
 **Firebase config** lives in `js/firebase-config.js` — open it and replace
 the object under `// PASTE YOUR FIREBASE CONFIG HERE`.
@@ -150,7 +163,18 @@ the email (logged to the browser console) and nothing breaks.
 
 ## STEP 8: Set Firestore Security Rules
 
-In Firebase → Firestore → Rules tab, paste this:
+**This step was out of date** — it used to show the old single-church rules,
+which don't even have a `churches` collection and are incompatible with this
+version of the app (registration, and the whole Platform Dashboard, would
+fail against them). It also had a real gap: the old `users` create rule
+checked that the target church existed and was active, but never actually
+restricted the `role` field — anyone with devtools open could've registered
+themselves straight into `superAdmin` for any real church. Both are fixed
+below, and this is now the **one and only copy of these rules** — nothing
+else in this project defines or references a separate rules file, so there's
+never a question of which version is current.
+
+In Firebase → Firestore → Rules tab, paste this in full, then Publish:
 
 ```
 rules_version = '2';
@@ -159,100 +183,204 @@ service cloud.firestore {
 
     function isSignedIn() { return request.auth != null; }
     function myData() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
-    function myRole() { return isSignedIn() ? myData().role : null; }
-    function myDept() { return isSignedIn() ? myData().department : null; }
-    // "admin" is the old, pre-department role name — treated the same as
-    // superAdmin so an account that existed before this update still works.
-    function isSuperAdmin() { return myRole() == 'superAdmin' || myRole() == 'admin'; }
-    function isDeptAdminOf(dept) { return myRole() == 'departmentAdmin' && myDept() == dept; }
+    function myChurchId() { return myData().churchId; }
+    function myRole() { return myData().role; }
+    function isPlatformAdmin() { return isSignedIn() && myRole() == "platformAdmin"; }
+    function isSuperAdmin() { return isSignedIn() && (myRole() == "superAdmin" || myRole() == "admin"); }
+    function isDeptAdmin() { return isSignedIn() && myRole() == "departmentAdmin"; }
+    function isAdmin() { return isSuperAdmin() || isDeptAdmin(); }
+    function sameChurch(data) { return isSignedIn() && data.churchId == myChurchId(); }
 
-    match /departments/{deptId} {
-      // Public read: the registration page needs this before anyone logs in.
-      allow read: if true;
-      allow write: if isSuperAdmin();
-    }
-
-    match /users/{userId} {
-      // Self, any super admin, or anyone in the same department (this is what
-      // powers each member's own-department directory).
-      allow read: if isSignedIn() && (request.auth.uid == userId || isSuperAdmin() || myDept() == resource.data.department);
-      // Registering always starts as a plain "member" — nobody can self-promote.
-      allow create: if request.auth.uid == userId && request.resource.data.role == 'member';
-      // A super admin can edit anyone. A department admin can edit members in
-      // their own department, but can't touch role/department (only a super
-      // admin promotes someone or moves them between departments). A member
-      // can edit their own doc (photo, position, etc.) but can't touch
-      // role/department on themselves either.
-      allow update: if isSuperAdmin()
-        || (isDeptAdminOf(resource.data.department)
-            && request.resource.data.role == resource.data.role
-            && request.resource.data.department == resource.data.department)
-        || (request.auth.uid == userId
-            && request.resource.data.role == resource.data.role
-            && request.resource.data.department == resource.data.department);
-      allow delete: if isSuperAdmin();
-    }
-
-    match /meetings/{meetingId} {
-      // Congregation-wide meetings are visible to everyone; department
-      // meetings are only visible within that department (or to a super admin).
-      allow read: if isSignedIn() && (isSuperAdmin() || resource.data.scope == 'congregation' || myDept() == resource.data.department);
-      allow create: if isSuperAdmin() || (isDeptAdminOf(request.resource.data.department) && request.resource.data.scope == 'department');
-      allow update, delete: if isSuperAdmin() || isDeptAdminOf(resource.data.department);
-    }
-
-    match /attendance/{attId} {
-      allow read: if isSignedIn() && (request.auth.uid == resource.data.userId || isSuperAdmin() || myDept() == resource.data.meetingDepartment);
-      // Can only clock into a meeting that's actually live right now.
-      allow create: if isSignedIn() && request.auth.uid == request.resource.data.userId
-        && get(/databases/$(database)/documents/meetings/$(request.resource.data.meetingId)).data.status == 'active';
-      allow update: if isSignedIn() && request.auth.uid == resource.data.userId;
-      allow delete: if isSuperAdmin();
-    }
-
-    match /excuses/{excuseId} {
-      allow read: if isSignedIn() && (request.auth.uid == resource.data.userId || isSuperAdmin() || myDept() == resource.data.meetingDepartment);
-      allow create: if isSignedIn() && request.auth.uid == request.resource.data.userId;
-      allow update: if isSuperAdmin() || isDeptAdminOf(resource.data.meetingDepartment);
-      allow delete: if isSuperAdmin();
-    }
-
-    match /announcements/{announcementId} {
-      allow read: if isSignedIn();
-      allow create: if isSuperAdmin() || (isDeptAdminOf(request.resource.data.department) && request.resource.data.scope == 'department');
-      allow delete: if isSuperAdmin() || isDeptAdminOf(resource.data.department);
-    }
-
-    match /devotionalLogs/{logId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+    // The permanent one-time-setup lock behind pages/platform-setup.html
+    // (see Step 9). Whoever's request creates this document becomes the
+    // Platform Admin; nobody — not even Collins — can ever create, edit,
+    // or delete it again afterward, which is what makes the setup page
+    // permanently self-locking after its first use. If setup is ever
+    // botched (wrong email, etc.), the only way to redo it is deleting
+    // this one document from the Firebase console directly, which
+    // bypasses these rules entirely because console access uses admin
+    // privileges.
+    match /platformMeta/bootstrap {
+      allow read: if true; // platform-setup.html needs this pre-login to know whether to show the form
+      allow create: if isSignedIn();
       allow update, delete: if false;
+    }
+
+    // Public: needed pre-login so the sign-up page can list churches and
+    // check whether the one in the URL is active. Only the platform admin
+    // can create or pause one.
+    match /churches/{churchId} {
+      allow read: if true;
+      allow write: if isPlatformAdmin();
+    }
+
+    // Public: needed pre-login so the registration form can populate the
+    // department dropdown for the chosen church. Only that church's own
+    // super admin can create/edit departments, and only under their own churchId.
+    match /departments/{deptId} {
+      allow read: if true;
+      allow write: if isSuperAdmin() && request.resource.data.churchId == myChurchId();
+    }
+
+    match /users/{uid} {
+      // Two, and only two, ways a users/{uid} doc can ever be created:
+      //
+      // 1. Normal member self-registration (index.html) — always pinned
+      //    to role=="member", and only under a church that actually
+      //    exists and is currently active. This is the line that was
+      //    missing before: it's what stops someone from registering
+      //    themselves straight into superAdmin via devtools.
+      //
+      // 2. The one-time Platform Admin bootstrap (platform-setup.html) —
+      //    only possible while platformMeta/bootstrap doesn't exist yet,
+      //    i.e. only the very first time, by whoever gets there first.
+      allow create: if isSignedIn() && request.auth.uid == uid && (
+           (request.resource.data.role == "member"
+             && exists(/databases/$(database)/documents/churches/$(request.resource.data.churchId))
+             && get(/databases/$(database)/documents/churches/$(request.resource.data.churchId)).data.active == true)
+        || (request.resource.data.role == "platformAdmin"
+             && !exists(/databases/$(database)/documents/platformMeta/bootstrap))
+      );
+
+      allow read: if isSignedIn() && (
+           request.auth.uid == uid
+        || isPlatformAdmin()
+        || (sameChurch(resource.data) && isSuperAdmin())
+        || (sameChurch(resource.data) && isDeptAdmin() && resource.data.department == myData().department)
+      );
+
+      // Members can update their own profile fields, but never their own
+      // role or churchId (no self-promotion, no church-hopping). Admins can
+      // update anyone in their own church/department, but a department
+      // admin can never grant superAdmin.
+      allow update: if isSignedIn() && (
+           (request.auth.uid == uid
+              && request.resource.data.role == resource.data.role
+              && request.resource.data.churchId == resource.data.churchId)
+        || (sameChurch(resource.data) && isSuperAdmin())
+        || (sameChurch(resource.data) && isDeptAdmin()
+              && resource.data.department == myData().department
+              && request.resource.data.role != "superAdmin")
+      );
+
+      allow delete: if false; // deactivate via a status field instead of deleting
+    }
+
+    match /meetings/{id} {
+      allow read: if isPlatformAdmin() || sameChurch(resource.data);
+      allow create: if isAdmin() && request.resource.data.churchId == myChurchId();
+      allow update, delete: if isAdmin() && sameChurch(resource.data);
+    }
+
+    match /attendance/{id} {
+      allow read: if isPlatformAdmin() || (sameChurch(resource.data) && (resource.data.userId == request.auth.uid || isAdmin()));
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid && request.resource.data.churchId == myChurchId();
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid && sameChurch(resource.data); // clock-out only
+    }
+
+    match /excuses/{id} {
+      allow read: if isPlatformAdmin() || (sameChurch(resource.data) && (resource.data.userId == request.auth.uid || isAdmin()));
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid && request.resource.data.churchId == myChurchId();
+      allow update: if isAdmin() && sameChurch(resource.data); // approve/decline only
+    }
+
+    match /announcements/{id} {
+      allow read: if isPlatformAdmin() || sameChurch(resource.data);
+      allow create: if isAdmin() && request.resource.data.churchId == myChurchId();
+      allow update, delete: if isAdmin() && sameChurch(resource.data);
+    }
+
+    match /devotionalLogs/{id} {
+      allow read: if isPlatformAdmin() || (sameChurch(resource.data) && (resource.data.userId == request.auth.uid || isAdmin()));
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid && request.resource.data.churchId == myChurchId();
     }
   }
 }
 ```
 
-Click Publish.
-
-**Worth knowing:** these rules protect the things that actually matter — nobody can self-promote to admin, move themselves between departments, or read another department's members/meetings/excuses. They do *not* stop a member from tampering with their own points/streak via direct API calls (same trust level as before this update) — reasonable for a small volunteer/congregation tool, not something you'd want for a system with real money or legal stakes attached.
-
----
-
-## STEP 9: Make Yourself Super Admin
-
-1. Open index.html, register your account (pick "General Congregation" — it doesn't matter, this changes next)
-2. Go to Firebase → Firestore → users collection
-3. Find your document (your UID is the document ID)
-4. Edit the "role" field: change "member" to "superAdmin"
-5. Save. You'll now land on the Super Admin Dashboard on login, with every tab unlocked including Departments.
-
-**If you already had an "admin" account from before this update:** it still works exactly as before — "admin" is treated identically to "superAdmin" everywhere in the app. You can leave it as "admin" or manually change it to "superAdmin" for clarity; either works.
-
-**Your very first real step as super admin:** go to the **Departments** tab and click **"Fix Old Accounts"** once. Every account created before this update has no department set at all, so none of them will show up anywhere — not even under "General Congregation" — until this runs. It's safe to click more than once; it only touches accounts still missing a department, and automatically carries over any old media-team role text into their new "position" field.
+**Worth knowing:** these rules protect the things that actually matter —
+nobody can self-promote to admin, move themselves between churches, or read
+another church's people/meetings/excuses/data. They do *not* stop a member
+from tampering with their own points/streak via direct API calls — reasonable
+for a small congregation tool, not something you'd want for a system with
+real money or legal stakes attached. And the one non-negotiable if you ever
+extend this schema yourself: every collection above checks that a
+document's `churchId` matches the requester's own — without that, the
+client-side `where("churchId", ...)` filters in the app are just cosmetic.
 
 ---
 
-## STEP 10: Deploy to Vercel (Free)
+## STEP 9: Set Up Your Platform Admin Account (Do This Before Anything Else)
+
+**This is the step that was completely missing before, and it's the reason
+you couldn't sign up a new church.** `pages/platform.html` — the dashboard
+that creates churches and hands out their sign-up links — has always
+required being signed in as `platformAdmin`. But nothing anywhere in the app
+could ever grant that role: registration always creates a plain `member`,
+and there was no page, button, or link that could create anything else. So
+the one feature that adds churches was permanently unreachable, for anyone,
+including you.
+
+Two new files fix this:
+
+- `js/platform-setup-config.js` — a private setup phrase, same idea as the
+  Cloudinary/EmailJS config files.
+- `pages/platform-setup.html` — a one-time setup page that creates your
+  Platform Admin account. It works exactly once, ever, for anyone — after
+  you complete it, the page permanently refuses to run again, for you or
+  for anyone who finds the URL. That lock lives in the Firestore rules
+  (the `platformMeta/bootstrap` document), not in the page itself, so it
+  holds even if someone edits the page's JavaScript.
+
+**To set yourself up:**
+
+1. Open `js/platform-setup-config.js` and replace `PICK_A_PRIVATE_PHRASE`
+   with any phrase only you know.
+2. Deploy, then go straight to `yourdomain.com/pages/platform-setup.html`.
+3. Fill in your name, email, password, and that setup phrase → Create
+   Platform Admin Account. You're immediately signed in and redirected to
+   the Platform Dashboard.
+4. From there: **Add a Church** → name + workspace ID → Create Church →
+   Copy Link. Send that link to the first admin at that church. The first
+   person who registers through it should be manually promoted to
+   `superAdmin` in Firestore (see Step 10) — from then on, that church runs
+   itself, and you never see its members' data unless you go looking (the
+   rules do give you read access across every church, for support).
+
+**To sign back in later:** go to `index.html`, and instead of picking a
+church, click **"Platform admin? Sign in directly"** under the church
+picker.
+
+**If something goes wrong mid-setup** (wrong email, etc.): the lock means
+this page won't let you try again. The fix is deleting the single
+`platformMeta/bootstrap` document in the Firebase console (console access
+bypasses the rules), which re-opens the one-time window — then run setup
+again.
+
+---
+
+## STEP 10: Make Yourself Super Admin of Your Own Church
+
+This is separate from Step 9 — Step 9 makes you the *platform* admin (across
+every church); this makes you the *super admin* of one specific church's
+workspace, the same way any church's first admin gets promoted.
+
+1. Using the sign-up link you copied in Step 9, register a normal member
+   account for that church (department doesn't matter — this changes next).
+2. Go to Firebase → Firestore → `users` collection.
+3. Find your document (your UID is the document ID).
+4. Edit the `role` field: change `member` to `superAdmin`.
+5. Save. You'll now land on the Super Admin Dashboard on login, with every
+   tab unlocked including Departments.
+
+**Your very first real step as that church's super admin:** go to the
+**Departments** tab and click **"Fix Old Accounts"** once, if you migrated
+an existing single-church account into this church workspace (see
+`migrate-legacy.html`). It's safe to click more than once.
+
+---
+
+## STEP 11: Deploy to Vercel (Free)
 
 1. Go to vercel.com → Sign up with GitHub
 2. Upload the rccg-attendance folder to a GitHub repository
@@ -275,6 +403,7 @@ rccg-attendance/
 │   ├── firebase-config.js   ← Firebase config lives here ONLY
 │   ├── cloudinary-config.js ← Cloudinary config + upload helper (profile photos)
 │   ├── emailjs-config.js    ← EmailJS config + send helper (admin notifications)
+│   ├── platform-setup-config.js ← Your private one-time platform-setup phrase (see Step 9)
 │   ├── icons.js              ← Shared icon set
 │   ├── motion.js             ← Reveal animations, confetti, toast, image resize helper
 │   └── devotionals.js        ← Daily devotional content + streak helpers
@@ -283,7 +412,9 @@ rccg-attendance/
 │   └── favicon-*.png / apple-touch-icon.png
 ├── pages/
 │   ├── member.html          ← Member dashboard, directory, announcements
-│   └── admin.html           ← Admin dashboard (scoped by role — Super Admin or Department Admin)
+│   ├── admin.html           ← Admin dashboard (scoped by role — Super Admin or Department Admin)
+│   ├── platform.html        ← Platform Dashboard — add/pause churches (needs role: platformAdmin)
+│   └── platform-setup.html  ← One-time page that creates your platformAdmin account (see Step 9)
 └── README.md                ← This file
 ```
 
