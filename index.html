@@ -142,7 +142,7 @@
     import { auth, db } from "./js/firebase-config.js";
     import { signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, sendPasswordResetEmail, signOut }
       from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-    import { doc, setDoc, getDoc, getDocs, collection, query, where, orderBy }
+    import { doc, setDoc, getDoc, getDocs, collection, query, where }
       from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
     import { icon } from "./js/icons.js";
 
@@ -157,8 +157,11 @@
     async function loadChurches() {
       const sel = document.getElementById("gateChurchSelect");
       try {
-        const snap = await getDocs(query(collection(db, "churches"), where("active", "==", true), orderBy("name")));
-        churches = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        // Note: no orderBy() here on purpose — combining it with the where()
+        // above would require a composite index. Sorting happens client-side
+        // instead, same pattern used for Members/Leaderboard elsewhere in the app.
+        const snap = await getDocs(query(collection(db, "churches"), where("active", "==", true)));
+        churches = snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => a.name.localeCompare(b.name));
         sel.innerHTML = churches.length
           ? `<option value="">Select your church</option>` + churches.map((c) => `<option value="${c.id}">${c.name}</option>`).join("")
           : `<option value="">No churches available yet</option>`;
@@ -250,11 +253,12 @@
       const sel = document.getElementById("regDepartment");
       sel.innerHTML = `<option value="">Select your department</option>`;
       try {
-        const snap = await getDocs(query(collection(db, "departments"), where("churchId", "==", churchId), orderBy("name")));
-        snap.forEach((d) => {
+        const snap = await getDocs(query(collection(db, "departments"), where("churchId", "==", churchId)));
+        const depts = snap.docs.map((d) => ({ id: d.id, name: d.data().name })).sort((a, b) => a.name.localeCompare(b.name));
+        depts.forEach((d) => {
           const opt = document.createElement("option");
           opt.value = d.id;
-          opt.textContent = d.data().name;
+          opt.textContent = d.name;
           sel.appendChild(opt);
         });
       } catch (err) {

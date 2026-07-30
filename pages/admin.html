@@ -228,7 +228,7 @@
   <script type="module">
     import { auth, db } from "../js/firebase-config.js";
     import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-    import { doc, getDoc, setDoc, getDocs, collection, query, where, orderBy, addDoc, updateDoc, deleteDoc, onSnapshot, Timestamp, serverTimestamp }
+    import { doc, getDoc, setDoc, getDocs, collection, query, where, addDoc, updateDoc, deleteDoc, onSnapshot, Timestamp, serverTimestamp }
       from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
     import { uploadToCloudinary } from "../js/cloudinary-config.js";
     import { sendEmailAlert } from "../js/emailjs-config.js";
@@ -272,8 +272,10 @@
     };
 
     async function loadDepartments() {
-      const snap = await getDocs(query(collection(db,"departments"), where("churchId","==",myChurchId), orderBy("name")));
-      allDepartments = snap.docs.map(d=>({id:d.id, ...d.data()}));
+      // No orderBy() here — combined with where() it'd need a composite index.
+      // Sort client-side instead, same pattern used everywhere else in the app.
+      const snap = await getDocs(query(collection(db,"departments"), where("churchId","==",myChurchId)));
+      allDepartments = snap.docs.map(d=>({id:d.id, ...d.data()})).sort((a,b)=>a.name.localeCompare(b.name));
     }
 
     function departmentName(id) {
