@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+  <title>Platform Dashboard — ChurchTrack</title>
+  <meta name="theme-color" content="#0A1628"/>
+
+  <link rel="icon" href="../favicon.ico" sizes="any"/>
+  <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png"/>
+  <link rel="apple-touch-icon" href="../assets/apple-touch-icon.png"/>
+  <link rel="manifest" href="../manifest.webmanifest"/>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="../css/style.css"/>
+</head>
+<body class="dashboard-body">
+  <nav class="navbar">
+    <div class="nav-brand">
+      <img class="nav-brand-logo" src="../assets/logo.png" alt="ChurchTrack crest"/>
+      <div class="nav-brand-text"><div class="nav-brand-name">ChurchTrack</div><div class="nav-brand-sub">Platform Dashboard</div></div>
+    </div>
+    <div class="nav-right">
+      <div class="nav-user">
+        <div class="avatar nav-avatar" id="navAvatar">P</div>
+        <div><div class="nav-user-name" id="navName">Platform Admin</div><div class="nav-user-role"><span class="badge badge-admin">Platform</span></div></div>
+      </div>
+      <button class="btn-logout" onclick="handleLogout()" id="logoutIconBtn" aria-label="Sign out"></button>
+    </div>
+  </nav>
+
+  <main class="main-content">
+    <div class="page-header">
+      <div><h1>Platform Dashboard</h1><p>Create a workspace for each church you onboard — every workspace is fully separate: its own members, meetings, attendance, and admins.</p></div>
+    </div>
+
+    <div class="stats-row reveal">
+      <div class="stat-card"><div class="stat-label">Churches</div><div class="stat-value" id="statTotal">—</div></div>
+      <div class="stat-card"><div class="stat-label">Active</div><div class="stat-value" style="color:var(--green-light);" id="statActive">—</div></div>
+      <div class="stat-card"><div class="stat-label">Paused</div><div class="stat-value" id="statPaused">—</div></div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card reveal">
+        <div class="card-header"><div><div class="card-title">Add a Church</div><div class="card-title-sub">Creates a fresh, isolated workspace</div></div></div>
+        <div class="meeting-form">
+          <div class="full"><label>Church Name</label><input type="text" id="newChurchName" placeholder="e.g. RCCG Living Faith Parish, Lagos" oninput="previewSlug()"/></div>
+          <div class="full"><label>Workspace ID (in the sign-up link — letters, numbers, hyphens only)</label><input type="text" id="newChurchSlug" placeholder="e.g. living-faith-lagos"/></div>
+          <div class="full"><button class="btn-primary" onclick="createChurch()"><span>Create Church</span></button></div>
+          <div class="full"><div id="createChurchError" class="error-msg hidden"></div></div>
+        </div>
+      </div>
+      <div class="card reveal">
+        <div class="card-header"><div><div class="card-title">How Onboarding Works</div></div></div>
+        <p style="font-size:13px;color:var(--white-dim);line-height:1.6;">Create the church here, then send its sign-up link to the first admin there. The first person who registers using that link should be manually promoted to Super Admin — open the Members tab in <em>their</em> Admin Dashboard is not accessible until you do this in Firestore directly (set their <code>role</code> field to <code>superAdmin</code>). From there, that church's own admin manages everything else — departments, meetings, members — without ever seeing other churches.</p>
+      </div>
+    </div>
+
+    <div class="card reveal">
+      <div class="card-header"><div><div class="card-title">Churches</div><div class="card-title-sub">Pause a workspace to cut off access without deleting its data</div></div></div>
+      <div id="churchesList"><div class="empty-state">Loading…</div></div>
+    </div>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <script type="module">
+    import { auth, db } from "../js/firebase-config.js";
+    import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+    import { doc, getDoc, setDoc, updateDoc, collection, getDocs, orderBy, query }
+      from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+    import { icon, escapeHtml } from "../js/icons.js";
+    import { showToast } from "../js/motion.js";
+
+    let churches = [];
+
+    onAuthStateChanged(auth, async (user) => {
+      if (!user) { window.location.href = "../index.html"; return; }
+      try {
+        const snap = await getDoc(doc(db, "users", user.uid));
+        if (!snap.exists() || snap.data().role !== "platformAdmin") { window.location.href = "../index.html"; return; }
+        document.getElementById("navName").textContent = snap.data().name || "Platform Admin";
+      } catch (err) {
+        showToast(`Couldn't verify your access: ${err.message}`, "error", icon("alert"));
+        return;
+      }
+      loadChurches();
+    });
+
+    document.getElementById("logoutIconBtn").innerHTML = icon("logOut");
+    window.handleLogout = () => signOut(auth).then(() => window.location.href = "../index.html");
+    window.previewSlug = () => {
+      const nameEl = document.getElementById("newChurchName");
+      const slugEl = document.getElementById("newChurchSlug");
+      if (slugEl.dataset.touched === "true") return; // don't clobber a manual edit
+      slugEl.value = nameEl.value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+    };
+    document.getElementById("newChurchSlug").addEventListener("input", (e) => { e.target.dataset.touched = "true"; });
+
+    function registrationLink(slug) {
+      return new URL(`../index.html?c=${slug}`, window.location.href).href;
+    }
+
+    window.createChurch = async () => {
+      const nameEl = document.getElementById("newChurchName");
+      const slugEl = document.getElementById("newChurchSlug");
+      const errEl = document.getElementById("createChurchError");
+      errEl.classList.add("hidden");
+      const name = nameEl.value.trim();
+      const slug = slugEl.value.trim().toLowerCase();
+      if (!name || !slug) { errEl.textContent = "Enter a church name and workspace ID."; errEl.classList.remove("hidden"); return; }
+      if (!/^[a-z0-9-]+$/.test(slug)) { errEl.textContent = "Workspace ID can only contain lowercase letters, numbers, and hyphens."; errEl.classList.remove("hidden"); return; }
+      try {
+        const existing = await getDoc(doc(db, "churches", slug));
+        if (existing.exists()) { errEl.textContent = "That workspace ID is already taken — try another."; errEl.classList.remove("hidden"); return; }
+        await setDoc(doc(db, "churches", slug), { name, active: true, createdAt: new Date().toISOString() });
+        nameEl.value = ""; slugEl.value = ""; slugEl.dataset.touched = "false";
+        showToast(`${name} is live. Copy its sign-up link below.`, "success", icon("check"));
+        loadChurches();
+      } catch (err) {
+        errEl.textContent = `Couldn't create the church: ${err.message}`; errEl.classList.remove("hidden");
+      }
+    };
+
+    window.toggleChurchActive = async (slug, makeActive) => {
+      try {
+        await updateDoc(doc(db, "churches", slug), { active: makeActive });
+        showToast(makeActive ? "Church resumed." : "Church paused — its members can no longer sign in.", makeActive ? "success" : "info", icon(makeActive ? "check" : "stopCircle"));
+        loadChurches();
+      } catch (err) {
+        showToast(`Couldn't update: ${err.message}`, "error", icon("alert"));
+      }
+    };
+
+    window.copyLink = async (slug) => {
+      const link = registrationLink(slug);
+      try {
+        await navigator.clipboard.writeText(link);
+        showToast("Sign-up link copied.", "success", icon("check"));
+      } catch {
+        prompt("Copy this link:", link);
+      }
+    };
+
+    async function loadChurches() {
+      const el = document.getElementById("churchesList");
+      try {
+        const snap = await getDocs(query(collection(db, "churches"), orderBy("createdAt", "desc")));
+        churches = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      } catch (err) {
+        el.innerHTML = `<div class="empty-state">Couldn't load churches: ${escapeHtml(err.message)}</div>`;
+        return;
+      }
+      document.getElementById("statTotal").textContent = churches.length;
+      document.getElementById("statActive").textContent = churches.filter((c) => c.active !== false).length;
+      document.getElementById("statPaused").textContent = churches.filter((c) => c.active === false).length;
+
+      if (!churches.length) { el.innerHTML = `<div class="empty-state">No churches yet — add your first one above.</div>`; return; }
+
+      el.innerHTML = churches.map((c) => {
+        const active = c.active !== false;
+        const link = registrationLink(c.id);
+        const created = c.createdAt ? new Date(c.createdAt).toLocaleDateString("en-NG", { day: "numeric", month: "short", year: "numeric" }) : "—";
+        return `<div style="padding:14px 0;border-bottom:1px solid rgba(255,255,255,0.05);display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+          <div style="min-width:0;">
+            <div style="font-weight:600;font-size:14px;">${escapeHtml(c.name)} <span class="badge ${active ? "badge-present" : "badge-absent"}" style="margin-left:6px;">${active ? "Active" : "Paused"}</span></div>
+            <div style="font-size:12px;color:var(--white-dim);margin-top:2px;">Created ${created} · ${escapeHtml(link)}</div>
+          </div>
+          <div style="display:flex;gap:8px;flex-shrink:0;">
+            <button class="btn-secondary" style="padding:8px 12px;font-size:12px;" onclick="copyLink('${c.id}')">Copy Link</button>
+            <button class="${active ? "btn-decline" : "btn-approve"}" style="padding:8px 12px;font-size:12px;" onclick="toggleChurchActive('${c.id}', ${!active})">${active ? "Pause" : "Resume"}</button>
+          </div>
+        </div>`;
+      }).join("");
+    }
+  </script>
+</body>
+</html>

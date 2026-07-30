@@ -1,5 +1,25 @@
 // Shared motion + media utilities for the portal
 
+// Safety net for .reveal content. Cards start at opacity:0 and only get
+// their "in" class from initReveal()/staggerIn(), which every page calls at
+// the tail end of its Firestore data-loading chain. Two things can leave
+// that class never applied, so the page stays blank:
+//  1) an earlier, unguarded await in that chain throws (e.g. a slow/failed
+//     network request right after login) and the code never reaches the
+//     reveal call at all.
+//  2) on some mobile browsers, IntersectionObserver's first intersection
+//     check is deferred until the next scroll/touch-driven layout pass, so
+//     already-on-screen cards don't get marked "in" until the user taps.
+// Either way, force everything visible after a short delay so the page
+// never depends on a touch/scroll to stop looking blank.
+if (typeof window !== "undefined") {
+  window.addEventListener("load", () => {
+    setTimeout(() => {
+      document.querySelectorAll(".reveal:not(.in)").forEach((el) => el.classList.add("in"));
+    }, 2500);
+  });
+}
+
 /** Reveal elements with a staggered fade/slide-up as they enter view (or immediately on load for above-the-fold). */
 export function initReveal(root = document) {
   const items = Array.from(root.querySelectorAll(".reveal"));

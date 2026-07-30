@@ -1,0 +1,106 @@
+// SUGGESTED Firestore security rules for multi-tenant church isolation.
+//
+// IMPORTANT: I don't have access to your current live rules, so this is a
+// complete rules file inferred from what the app's code expects — not a
+// diff against what you already have. Your existing rules already do
+// role/department scoping (the admin.html code comments reference it), so
+// before replacing anything: paste your current rules and this file into
+// the Firebase Console Rules Playground and compare, or ask me to merge
+// them once you share your current rules.
+//
+// The one non-negotiable addition, however you merge this: every collection
+// below must check that a document's `churchId` matches the requester's own
+// `churchId`. Without that check, all the client-side `where("churchId",...)`
+// filters added in the app are just cosmetic — anyone can still read or
+// write another church's data directly.
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() { return request.auth != null; }
+    function myData() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+    function myChurchId() { return myData().churchId; }
+    function myRole() { return myData().role; }
+    function isPlatformAdmin() { return isSignedIn() && myRole() == "platformAdmin"; }
+    function isSuperAdmin() { return isSignedIn() && (myRole() == "superAdmin" || myRole() == "admin"); }
+    function isDeptAdmin() { return isSignedIn() && myRole() == "departmentAdmin"; }
+    function isAdmin() { return isSuperAdmin() || isDeptAdmin(); }
+    function sameChurch(data) { return isSignedIn() && data.churchId == myChurchId(); }
+
+    // Public: needed pre-login so the sign-up page can list churches and
+    // check whether the one in the URL is active. Only Collins (platform
+    // admin) can create or pause one.
+    match /churches/{churchId} {
+      allow read: if true;
+      allow write: if isPlatformAdmin();
+    }
+
+    // Public: needed pre-login so the registration form can populate the
+    // department dropdown for the chosen church. Only that church's own
+    // super admin can create/edit departments, and only under their own churchId.
+    match /departments/{deptId} {
+      allow read: if true;
+      allow write: if isSuperAdmin() && request.resource.data.churchId == myChurchId();
+    }
+
+    match /users/{uid} {
+      // Registration: a person can only create their own account, and only
+      // under a church that actually exists and is currently active.
+      allow create: if isSignedIn() && request.auth.uid == uid
+        && exists(/databases/$(database)/documents/churches/$(request.resource.data.churchId))
+        && get(/databases/$(database)/documents/churches/$(request.resource.data.churchId)).data.active == true;
+
+      allow read: if isSignedIn() && (
+           request.auth.uid == uid
+        || (sameChurch(resource.data) && isSuperAdmin())
+        || (sameChurch(resource.data) && isDeptAdmin() && resource.data.department == myData().department)
+      );
+
+      // Members can update their own profile fields, but never their own
+      // role or churchId (no self-promotion, no church-hopping). Admins can
+      // update anyone in their own church/department, but a department
+      // admin can never grant superAdmin.
+      allow update: if isSignedIn() && (
+           (request.auth.uid == uid
+              && request.resource.data.role == resource.data.role
+              && request.resource.data.churchId == resource.data.churchId)
+        || (sameChurch(resource.data) && isSuperAdmin())
+        || (sameChurch(resource.data) && isDeptAdmin()
+              && resource.data.department == myData().department
+              && request.resource.data.role != "superAdmin")
+      );
+
+      allow delete: if false; // deactivate via a status field instead of deleting
+    }
+
+    match /meetings/{id} {
+      allow read: if sameChurch(resource.data);
+      allow create: if isAdmin() && request.resource.data.churchId == myChurchId();
+      allow update, delete: if isAdmin() && sameChurch(resource.data);
+    }
+
+    match /attendance/{id} {
+      allow read: if sameChurch(resource.data) && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid && request.resource.data.churchId == myChurchId();
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid && sameChurch(resource.data); // clock-out only
+    }
+
+    match /excuses/{id} {
+      allow read: if sameChurch(resource.data) && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid && request.resource.data.churchId == myChurchId();
+      allow update: if isAdmin() && sameChurch(resource.data); // approve/decline only
+    }
+
+    match /announcements/{id} {
+      allow read: if sameChurch(resource.data);
+      allow create: if isAdmin() && request.resource.data.churchId == myChurchId();
+      allow update, delete: if isAdmin() && sameChurch(resource.data);
+    }
+
+    match /devotionalLogs/{id} {
+      allow read: if sameChurch(resource.data) && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid && request.resource.data.churchId == myChurchId();
+    }
+  }
+}

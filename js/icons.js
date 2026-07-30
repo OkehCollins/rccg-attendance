@@ -36,3 +36,20 @@ export function icon(name, cls = "") {
   const p = PATHS[name] || "";
   return `<svg class="icon ${cls}" viewBox="0 0 24 24">${p}</svg>`;
 }
+
+/**
+ * Escapes a string for safe interpolation into innerHTML. Use this around
+ * ANY user-supplied value (name, position, excuse reason, announcement text,
+ * meeting title, etc.) before it goes into a template literal that gets
+ * assigned to .innerHTML — otherwise a name like `<img src=x onerror=...>`
+ * renders and executes in every viewer's browser (stored XSS).
+ */
+export function escapeHtml(str) {
+  if (str === null || str === undefined) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}

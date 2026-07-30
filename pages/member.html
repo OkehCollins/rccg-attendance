@@ -157,11 +157,11 @@
       from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
     import { uploadToCloudinary } from "../js/cloudinary-config.js";
     import { sendEmailAlert } from "../js/emailjs-config.js";
-    import { icon } from "../js/icons.js";
+    import { icon, escapeHtml } from "../js/icons.js";
     import { initReveal, staggerIn, confettiBurst, showToast, imageToSquareBlob, openModal, closeModal } from "../js/motion.js";
     import { getTodayDevotional, todayKey, DEVOTIONAL_BADGES } from "../js/devotionals.js";
 
-    let currentUser = null, currentUserData = null;
+    let currentUser = null, currentUserData = null, myChurchId = null;
     let devotionalDoneToday = false;
     let meetingListenerAttached = false;
     let allDirectoryMembers = [];
@@ -188,7 +188,7 @@
         const scopeLabel = m.scope === "congregation" ? "Congregation-wide" : (currentUserData.departmentName || "Department");
         return `<div class="meeting-status-card" style="margin-bottom:16px;" id="meetingCard-${m.id}">
           <div class="meeting-live-badge"><span class="live-dot"></span> Live · ${scopeLabel}</div>
-          <div class="meeting-name">${m.title}</div>
+          <div class="meeting-name">${escapeHtml(m.title)}</div>
           <div class="meeting-meta">${st.toLocaleDateString("en-NG",{weekday:"long",day:"numeric",month:"long"})} · ${st.toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"})}</div>
           <button class="btn-clockin" id="clockInBtn-${m.id}" onclick="handleClockIn('${m.id}')"><span id="clockBtnIcon-${m.id}"></span> <span id="clockBtnText-${m.id}">Clock In</span></button>
           <p style="font-size:12px;color:var(--white-dim);margin-top:12px;" id="clockStatus-${m.id}"></p>
@@ -259,7 +259,7 @@
 
     function avatarHTML(ud) {
       const initials = (ud.name || "?").split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase();
-      return ud.photoURL ? `<img src="${ud.photoURL}" alt="${ud.name}"/>` : initials;
+      return ud.photoURL ? `<img src="${escapeHtml(ud.photoURL)}" alt="${escapeHtml(ud.name)}"/>` : initials;
     }
     function refreshAvatars() {
       document.getElementById("navAvatar").innerHTML = avatarHTML(currentUserData);
@@ -343,7 +343,7 @@
         const now = new Date();
         const isLate = (now - meeting.scheduledAt.toDate()) > (meeting.lateThresholdMinutes||15)*60000;
         const record = await addDoc(collection(db,"attendance"), {
-          userId:currentUser.uid, userName:currentUserData.name, meetingId:meeting.id, meetingTitle:meeting.title,
+          userId:currentUser.uid, userName:currentUserData.name, churchId:myChurchId, meetingId:meeting.id, meetingTitle:meeting.title,
           meetingScope:meeting.scope, meetingDepartment:meeting.department||null,
           clockInTime:serverTimestamp(), clockOutTime:null, late:isLate, lat:latitude, lng:longitude, pointsAwarded:isLate?5:10
         });
@@ -380,7 +380,7 @@
       const newTotal = (currentUserData.totalDevotionals || 0) + 1;
       const newPoints = (currentUserData.points || 0) + 3;
       try {
-        await addDoc(collection(db, "devotionalLogs"), { userId: currentUser.uid, date: today, ref: devo.ref, theme: devo.theme, completedAt: serverTimestamp() });
+        await addDoc(collection(db, "devotionalLogs"), { userId: currentUser.uid, churchId: myChurchId, date: today, ref: devo.ref, theme: devo.theme, completedAt: serverTimestamp() });
         await updateDoc(doc(db, "users", currentUser.uid), { devotionalStreak: newStreak, devotionalLongestStreak: newLongest, totalDevotionals: newTotal, lastDevotionalDate: today, points: newPoints });
         currentUserData = { ...currentUserData, devotionalStreak: newStreak, devotionalLongestStreak: newLongest, totalDevotionals: newTotal, lastDevotionalDate: today, points: newPoints };
         devotionalDoneToday = true;
@@ -414,7 +414,7 @@
       const meetingTitle = opt.text;
       const meetingScope = opt.dataset.scope;
       const meetingDepartment = opt.dataset.department || null;
-      await addDoc(collection(db,"excuses"),{userId:currentUser.uid,userName:currentUserData.name,meetingId,meetingTitle,meetingScope,meetingDepartment,reason,status:"pending",submittedAt:serverTimestamp()});
+      await addDoc(collection(db,"excuses"),{userId:currentUser.uid,userName:currentUserData.name,churchId:myChurchId,meetingId,meetingTitle,meetingScope,meetingDepartment,reason,status:"pending",submittedAt:serverTimestamp()});
       document.getElementById("excuseReason").value=""; document.getElementById("excuseMeetingSelect").value="";
       showToast("Excuse submitted. Waiting for admin approval.");
       sendEmailAlert(
@@ -433,13 +433,13 @@
       if (!members.length) { grid.innerHTML = `<div class="empty-state">${icon("users","icon-xl")}<p>No one else here yet.</p></div>`; return; }
       grid.innerHTML = members.map(u => {
         const initials = (u.name||"?").split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase();
-        const avatar = u.photoURL ? `<img src="${u.photoURL}" alt="${u.name}"/>` : initials;
+        const avatar = u.photoURL ? `<img src="${escapeHtml(u.photoURL)}" alt="${escapeHtml(u.name)}"/>` : initials;
         return `<div class="member-card">
           <div class="member-card-top">
             <div class="avatar member-card-avatar">${avatar}</div>
             <div style="flex:1;min-width:0;">
-              <div class="member-card-name">${u.name}</div>
-              <div class="member-card-role">${u.position || "Member"}</div>
+              <div class="member-card-name">${escapeHtml(u.name)}</div>
+              <div class="member-card-role">${escapeHtml(u.position) || "Member"}</div>
               ${u.isWorker ? `<span class="badge badge-worker" style="margin-top:4px;">Worker</span>` : ""}
             </div>
           </div>
@@ -451,7 +451,7 @@
       document.getElementById("directoryTitle").textContent = myDept === "general" ? "Directory — General Congregation" : `Directory — ${currentUserData.departmentName}`;
       document.getElementById("directorySubtitle").textContent = "People in your department";
       try {
-        const snap = await getDocs(query(collection(db,"users"), where("department","==",myDept)));
+        const snap = await getDocs(query(collection(db,"users"), where("churchId","==",myChurchId), where("department","==",myDept)));
         allDirectoryMembers = snap.docs.map(d=>d.data()).filter(u=>u.uid!==currentUser.uid).sort((a,b)=>a.name.localeCompare(b.name));
         renderDirectory(allDirectoryMembers);
       } catch (err) {
@@ -466,8 +466,8 @@
       try {
         const myDept = currentUserData.department || "general";
         const [congSnap, deptSnap] = await Promise.all([
-          getDocs(query(collection(db,"announcements"), where("scope","==","congregation"))),
-          myDept !== "general" ? getDocs(query(collection(db,"announcements"), where("scope","==","department"), where("department","==",myDept))) : Promise.resolve({docs:[]})
+          getDocs(query(collection(db,"announcements"), where("churchId","==",myChurchId), where("scope","==","congregation"))),
+          myDept !== "general" ? getDocs(query(collection(db,"announcements"), where("churchId","==",myChurchId), where("scope","==","department"), where("department","==",myDept))) : Promise.resolve({docs:[]})
         ]);
         const anns = [...congSnap.docs, ...deptSnap.docs].map(d=>d.data()).sort((a,b)=>(b.createdAt?.toMillis()||0)-(a.createdAt?.toMillis()||0)).slice(0,5);
         if (!anns.length) { card.classList.add("hidden"); return; }
@@ -475,9 +475,9 @@
         list.innerHTML = anns.map(a => {
           const date = a.createdAt ? new Date(a.createdAt.toDate()).toLocaleDateString("en-NG",{day:"numeric",month:"short"}) : "";
           return `<div style="padding:12px 0;border-bottom:1px solid rgba(255,255,255,0.05);">
-            <div style="font-weight:600;font-size:14px;">${a.title}</div>
-            <div style="font-size:13px;color:var(--white-dim);margin-top:4px;">${a.message}</div>
-            <div style="font-size:11px;color:var(--white-dim);margin-top:6px;">${a.postedByName||"Admin"} · ${date}</div>
+            <div style="font-weight:600;font-size:14px;">${escapeHtml(a.title)}</div>
+            <div style="font-size:13px;color:var(--white-dim);margin-top:4px;">${escapeHtml(a.message)}</div>
+            <div style="font-size:11px;color:var(--white-dim);margin-top:6px;">${escapeHtml(a.postedByName)||"Admin"} · ${date}</div>
           </div>`;
         }).join("");
       } catch (err) {
@@ -491,9 +491,22 @@
     onAuthStateChanged(auth, async (user) => {
       if(!user){window.location.href="../index.html";return;}
       currentUser=user;
-      const snap=await getDoc(doc(db,"users",user.uid));
-      if(!snap.exists()){window.location.href="../index.html";return;}
-      currentUserData=snap.data();
+      try {
+        const snap=await getDoc(doc(db,"users",user.uid));
+        if(!snap.exists()){window.location.href="../index.html";return;}
+        currentUserData=snap.data();
+        myChurchId = currentUserData.churchId;
+        const churchSnap = await getDoc(doc(db,"churches",myChurchId));
+        if (churchSnap.exists() && churchSnap.data().active === false) {
+          await signOut(auth);
+          window.location.href = "../index.html";
+          return;
+        }
+      } catch (err) {
+        showToast(`Couldn't load your profile: ${err.message}. Pull down to reload.`, "error", icon("alert"));
+        staggerIn(document.querySelectorAll(".reveal"), 70);
+        return;
+      }
       if(["superAdmin","departmentAdmin","admin"].includes(currentUserData.role)){window.location.href="admin.html";return;}
 
       refreshAvatars();
@@ -533,7 +546,7 @@
       // ---- active meetings: realtime, church-wide list filtered down to what's relevant to me ----
       if (!meetingListenerAttached) {
         meetingListenerAttached = true;
-        onSnapshot(query(collection(db,"meetings"), where("status","==","active")), (activeSnap) => {
+        onSnapshot(query(collection(db,"meetings"), where("churchId","==",myChurchId), where("status","==","active")), (activeSnap) => {
           renderActiveMeetings(activeSnap.docs.map(d => ({ id: d.id, ...d.data() })));
         }, (err) => {
           document.getElementById("noMeetingMsg").querySelector("p").textContent = `Couldn't check for a live meeting: ${err.message}`;
@@ -543,7 +556,7 @@
       // ---- upcoming meetings relevant to me, for the excuse dropdown (sorted client-side — no composite index needed) ----
       try {
         const myDept = currentUserData.department || "general";
-        const upSnap=await getDocs(query(collection(db,"meetings"),where("status","==","upcoming")));
+        const upSnap=await getDocs(query(collection(db,"meetings"), where("churchId","==",myChurchId), where("status","==","upcoming")));
         const upcoming = upSnap.docs.map(d=>({id:d.id,...d.data()})).filter(isMeetingRelevantToMe).sort((a,b)=>a.scheduledAt.toMillis()-b.scheduledAt.toMillis());
         const sel=document.getElementById("excuseMeetingSelect");
         sel.innerHTML='<option value="">Select upcoming meeting</option>';
@@ -560,7 +573,7 @@
         if(!records.length){list.innerHTML=`<div class="empty-state">${icon("clipboard","icon-xl")}<p>No records yet.</p></div>`;}
         else{
           let html=`<div class="table-scroll"><table class="attendance-table"><thead><tr><th>Meeting</th><th>Date</th><th>In</th><th>Out</th><th>Status</th></tr></thead><tbody>`;
-          records.forEach(r=>{const dateStr=r.clockInTime?new Date(r.clockInTime.toDate()).toLocaleDateString("en-NG",{day:"numeric",month:"short"}):"—";const inStr=r.clockInTime?new Date(r.clockInTime.toDate()).toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"}):"—";const outStr=r.clockOutTime?new Date(r.clockOutTime.toDate()).toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"}):"—";html+=`<tr><td>${r.meetingTitle||"—"}</td><td>${dateStr}</td><td>${inStr}</td><td>${outStr}</td><td><span class="badge ${r.late?"badge-late":"badge-present"}">${r.late?"Late":"Present"}</span></td></tr>`;});
+          records.forEach(r=>{const dateStr=r.clockInTime?new Date(r.clockInTime.toDate()).toLocaleDateString("en-NG",{day:"numeric",month:"short"}):"—";const inStr=r.clockInTime?new Date(r.clockInTime.toDate()).toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"}):"—";const outStr=r.clockOutTime?new Date(r.clockOutTime.toDate()).toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"}):"—";html+=`<tr><td>${escapeHtml(r.meetingTitle)||"—"}</td><td>${dateStr}</td><td>${inStr}</td><td>${outStr}</td><td><span class="badge ${r.late?"badge-late":"badge-present"}">${r.late?"Late":"Present"}</span></td></tr>`;});
           html+=`</tbody></table></div>`;
           list.innerHTML=html;
         }

@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>One-Time Migration — DO NOT DEPLOY THIS FILE PERMANENTLY</title>
+  <meta name="robots" content="noindex,nofollow"/>
+  <style>
+    body { font-family: -apple-system, sans-serif; background: #0A1628; color: #EAEAEA; max-width: 640px; margin: 40px auto; padding: 0 20px; line-height: 1.6; }
+    h1 { color: #C9A84C; font-size: 20px; }
+    .warn { background: rgba(231,76,60,0.12); border: 1px solid rgba(231,76,60,0.4); padding: 14px 16px; border-radius: 8px; margin-bottom: 20px; font-size: 14px; }
+    button { background: #C9A84C; color: #0A1628; border: none; padding: 12px 20px; border-radius: 8px; font-weight: 700; font-size: 14px; cursor: pointer; margin: 4px 0; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    pre { background: rgba(255,255,255,0.05); padding: 14px; border-radius: 8px; font-size: 12px; white-space: pre-wrap; max-height: 400px; overflow-y: auto; }
+    input { width: 100%; box-sizing: border-box; padding: 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.04); color: #fff; margin: 6px 0 14px; }
+    label { font-size: 13px; color: #B8B8B8; }
+  </style>
+</head>
+<body>
+  <h1>One-Time Data Migration</h1>
+  <div class="warn">
+    <strong>Run this exactly once, before deploying the multi-tenant update.</strong>
+    It stamps <code>churchId</code> onto every existing document so your current admin account and members
+    don't get locked out by the new church-scoping checks. Delete this file (or take it out of your deployed
+    folder) once you've confirmed it worked — it's not meant to stay live.
+    <br/><br/>
+    Sign in below with your <strong>existing</strong> Champions Cathedral admin account (the old login still
+    works as long as this file sits alongside the <em>old</em> version of the other pages, or you run this
+    during a short maintenance window right before pushing the new code).
+  </div>
+
+  <div id="loginBox">
+    <label>Admin Email</label>
+    <input type="email" id="mEmail" placeholder="you@example.com"/>
+    <label>Password</label>
+    <input type="password" id="mPassword"/>
+    <button onclick="doLogin()">Sign In</button>
+    <div id="loginErr" style="color:#F1948A;font-size:13px;margin-top:8px;"></div>
+  </div>
+
+  <div id="runBox" style="display:none;">
+    <label>New Church Name (as it should appear to members)</label>
+    <input type="text" id="churchNameInput" value="RCCG Champions Cathedral, Warri"/>
+    <label>Workspace ID (used in the sign-up link — lowercase, hyphens only)</label>
+    <input type="text" id="churchSlugInput" value="champions-cathedral"/>
+    <button id="runBtn" onclick="runMigration()">Run Migration</button>
+    <pre id="log">Ready.</pre>
+  </div>
+
+  <script type="module">
+    import { auth, db } from "./js/firebase-config.js";
+    import { signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+    import { doc, setDoc, getDoc, getDocs, collection, updateDoc, writeBatch }
+      from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+    const logEl = document.getElementById("log");
+    function log(msg) { logEl.textContent += "\n" + msg; logEl.scrollTop = logEl.scrollHeight; }
+
+    window.doLogin = async () => {
+      const email = document.getElementById("mEmail").value.trim();
+      const password = document.getElementById("mPassword").value;
+      const errEl = document.getElementById("loginErr");
+      errEl.textContent = "";
+      try {
+        const cred = await signInWithEmailAndPassword(auth, email, password);
+        const snap = await getDoc(doc(db, "users", cred.user.uid));
+        const role = snap.exists() ? snap.data().role : null;
+        if (!["superAdmin", "admin", "departmentAdmin"].includes(role)) {
+          errEl.textContent = "This account isn't an admin — sign in with your admin account.";
+          return;
+        }
+        document.getElementById("loginBox").style.display = "none";
+        document.getElementById("runBox").style.display = "block";
+      } catch (err) {
+        errEl.textContent = `Sign-in failed: ${err.message}`;
+      }
+    };
+
+    // Batched writes: Firestore caps a batch at 500 writes, so we chunk.
+    async function batchUpdateMissingField(collectionName, fieldPresent, fieldsToSet) {
+      const snap = await getDocs(collection(db, collectionName));
+      const toFix = snap.docs.filter((d) => d.data()[fieldPresent] === undefined);
+      log(`${collectionName}: ${snap.size} total, ${toFix.length} missing ${fieldPresent}`);
+      let done = 0;
+      for (let i = 0; i < toFix.length; i += 450) {
+        const chunk = toFix.slice(i, i + 450);
+        const batch = writeBatch(db);
+        chunk.forEach((d) => batch.update(doc(db, collectionName, d.id), fieldsToSet));
+        await batch.commit();
+        done += chunk.length;
+        log(`  → updated ${done}/${toFix.length}`);
+      }
+      return toFix.length;
+    }
+
+    window.runMigration = async () => {
+      const btn = document.getElementById("runBtn");
+      const name = document.getElementById("churchNameInput").value.trim();
+      const slug = document.getElementById("churchSlugInput").value.trim().toLowerCase();
+      if (!name || !/^[a-z0-9-]+$/.test(slug)) { log("Enter a valid name and a lowercase-hyphen workspace ID."); return; }
+      btn.disabled = true;
+      logEl.textContent = "Starting…";
+      try {
+        await setDoc(doc(db, "churches", slug), { name, active: true, createdAt: new Date().toISOString() }, { merge: true });
+        log(`✓ Church workspace "${slug}" ready.`);
+
+        for (const col of ["users", "meetings", "attendance", "excuses", "announcements", "departments", "devotionalLogs"]) {
+          await batchUpdateMissingField(col, "churchId", { churchId: slug });
+        }
+
+        log("\n✅ Migration complete. Every existing record now belongs to this church.");
+        log("Next: deploy the new app files, then delete this migration file.");
+      } catch (err) {
+        log(`\n❌ Something went wrong: ${err.message}`);
+        log("Safe to re-run — it only touches documents still missing churchId.");
+      } finally {
+        btn.disabled = false;
+      }
+    };
+  </script>
+</body>
+</html>

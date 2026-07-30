@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
-  <title>RCCG Champions Cathedral — Member Portal</title>
+  <title>ChurchTrack — Member Portal</title>
   <meta name="theme-color" content="#0A1628"/>
-  <meta name="description" content="Attendance, directory, points, streaks and daily devotionals for RCCG Champions Cathedral, Warri."/>
+  <meta name="description" content="Attendance, directory, points, streaks and daily devotionals for your church."/>
 
   <link rel="icon" href="favicon.ico" sizes="any"/>
   <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png"/>
@@ -27,13 +27,33 @@
   <div class="auth-container">
     <div class="auth-card">
       <div class="brand">
-        <img class="brand-logo" src="assets/logo.png" alt="RCCG Champions Cathedral crest"/>
-        <h1 class="brand-name">Champions Cathedral</h1>
-        <p class="brand-sub">Member Portal</p>
+        <img class="brand-logo" src="assets/logo.png" alt="Church crest"/>
+        <h1 class="brand-name" id="brandName">ChurchTrack</h1>
+        <p class="brand-sub" id="brandSub">Member Portal</p>
       </div>
 
       <div class="form-panel">
-        <div id="loginForm">
+        <div id="churchGate">
+          <h2 class="form-title">Find Your Church</h2>
+          <p class="form-sub">Select your church to sign in or join</p>
+          <div class="form-group">
+            <label>Church</label>
+            <select id="gateChurchSelect">
+              <option value="">Loading churches…</option>
+            </select>
+          </div>
+          <div id="gateError" class="error-msg hidden"></div>
+          <button class="btn-primary" onclick="confirmChurch()"><span>Continue</span><span class="btn-icon">→</span></button>
+        </div>
+
+        <div id="churchConfirmed" class="hidden">
+          <div class="church-chip">
+            <span id="confirmedChurchName"></span>
+            <button type="button" class="link-muted" onclick="clearChurch()">Not your church?</button>
+          </div>
+        </div>
+
+        <div id="loginForm" class="hidden">
           <h2 class="form-title">Welcome Back</h2>
           <p class="form-sub">Sign in to your member account</p>
           <div class="form-group">
@@ -71,16 +91,17 @@
             <input type="tel" id="regPhone" placeholder="+234 800 000 0000" autocomplete="tel"/>
           </div>
           <div class="form-group">
-            <label>Department</label>
-            <select id="regDepartment" onchange="onDepartmentChange()">
-              <option value="general">General Congregation (not attached to a department)</option>
-            </select>
+            <label>Are You a Worker / Volunteer?</label>
+            <div class="choice-toggle">
+              <button type="button" class="choice-btn active" id="workerChoiceNo" aria-pressed="true" onclick="setWorkerChoice(false)">No, I'm a Member</button>
+              <button type="button" class="choice-btn" id="workerChoiceYes" aria-pressed="false" onclick="setWorkerChoice(true)">Yes, I Serve</button>
+            </div>
           </div>
-          <div class="form-group hidden" id="workerToggleGroup">
-            <label class="checkbox-row">
-              <input type="checkbox" id="regIsWorker" checked/>
-              <span>I actively serve as a worker/volunteer in this department</span>
-            </label>
+          <div class="form-group hidden" id="departmentGroup">
+            <label>Department</label>
+            <select id="regDepartment">
+              <option value="">Select your department</option>
+            </select>
           </div>
           <div class="form-group">
             <label>Position / Role (optional)</label>
@@ -113,14 +134,14 @@
         </div>
       </div>
     </div>
-    <p class="auth-footer">RCCG Champions Cathedral · Warri</p>
+    <p class="auth-footer" id="authFooter">ChurchTrack</p>
   </div>
 
   <script type="module">
     import { auth, db } from "./js/firebase-config.js";
-    import { signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, sendPasswordResetEmail }
+    import { signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, sendPasswordResetEmail, signOut }
       from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-    import { doc, setDoc, getDoc, getDocs, collection, query, orderBy }
+    import { doc, setDoc, getDoc, getDocs, collection, query, where, orderBy }
       from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
     import { icon } from "./js/icons.js";
 
@@ -128,22 +149,91 @@
     // superAdmin so an existing account doesn't get locked out after this update.
     const ADMIN_ROLES = ["superAdmin", "departmentAdmin", "admin"];
 
+    let churches = [];          // {id, name, active} for every active church, loaded once
+    let selectedChurchId = null;
+    let selectedChurchName = null;
+
+    async function loadChurches() {
+      const sel = document.getElementById("gateChurchSelect");
+      try {
+        const snap = await getDocs(query(collection(db, "churches"), where("active", "==", true), orderBy("name")));
+        churches = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        sel.innerHTML = churches.length
+          ? `<option value="">Select your church</option>` + churches.map((c) => `<option value="${c.id}">${c.name}</option>`).join("")
+          : `<option value="">No churches available yet</option>`;
+      } catch (err) {
+        sel.innerHTML = `<option value="">Couldn't load churches</option>`;
+        console.warn("Couldn't load churches:", err);
+      }
+
+      // A shared link like index.html?c=champions-cathedral skips the picker
+      // and goes straight to that church's sign-in/registration.
+      const slug = new URLSearchParams(window.location.search).get("c");
+      if (slug) {
+        const match = churches.find((c) => c.id === slug);
+        if (match) { sel.value = match.id; confirmChurch(); return; }
+      }
+    }
+    loadChurches();
+
+    window.confirmChurch = () => {
+      const sel = document.getElementById("gateChurchSelect");
+      const errEl = document.getElementById("gateError");
+      errEl.classList.add("hidden");
+      const match = churches.find((c) => c.id === sel.value);
+      if (!match) { errEl.textContent = "Please select your church to continue."; errEl.classList.remove("hidden"); return; }
+      selectedChurchId = match.id;
+      selectedChurchName = match.name;
+      document.getElementById("brandName").textContent = match.name;
+      document.getElementById("authFooter").textContent = match.name;
+      document.getElementById("confirmedChurchName").textContent = match.name;
+      document.getElementById("churchGate").classList.add("hidden");
+      document.getElementById("churchConfirmed").classList.remove("hidden");
+      document.getElementById("loginForm").classList.remove("hidden");
+      loadDepartmentOptions(selectedChurchId);
+    };
+
+    window.clearChurch = () => {
+      selectedChurchId = null;
+      selectedChurchName = null;
+      document.getElementById("brandName").textContent = "ChurchTrack";
+      document.getElementById("authFooter").textContent = "ChurchTrack";
+      document.getElementById("churchConfirmed").classList.add("hidden");
+      document.getElementById("loginForm").classList.add("hidden");
+      document.getElementById("registerForm").classList.add("hidden");
+      document.getElementById("forgotForm").classList.add("hidden");
+      document.getElementById("churchGate").classList.remove("hidden");
+    };
+
     onAuthStateChanged(auth, async (user) => {
       if (user) {
-        const snap = await getDoc(doc(db, "users", user.uid));
-        if (snap.exists()) {
-          window.location.href = ADMIN_ROLES.includes(snap.data().role) ? "pages/admin.html" : "pages/member.html";
+        try {
+          const snap = await getDoc(doc(db, "users", user.uid));
+          if (snap.exists()) {
+            const u = snap.data();
+            const churchSnap = await getDoc(doc(db, "churches", u.churchId));
+            if (churchSnap.exists() && churchSnap.data().active === false) {
+              await signOut(auth);
+              document.getElementById("loginError").textContent = "This church's account is currently paused. Contact your church administrator.";
+              document.getElementById("loginError").classList.remove("hidden");
+              return;
+            }
+            window.location.href = ADMIN_ROLES.includes(u.role) ? "pages/admin.html" : "pages/member.html";
+          }
+        } catch (err) {
+          console.warn("Couldn't verify account status:", err);
         }
       }
     });
 
-    // Populate the department dropdown. "General Congregation" is always
-    // present even before any department has been created (unauthenticated
-    // read — department names aren't sensitive, so this works pre-login).
-    async function loadDepartmentOptions() {
+    // Populate the department dropdown for the confirmed church (only shown
+    // once someone picks "Yes, I Serve"). Unauthenticated read — department
+    // names aren't sensitive, so this works pre-login.
+    async function loadDepartmentOptions(churchId) {
+      const sel = document.getElementById("regDepartment");
+      sel.innerHTML = `<option value="">Select your department</option>`;
       try {
-        const snap = await getDocs(query(collection(db, "departments"), orderBy("name")));
-        const sel = document.getElementById("regDepartment");
+        const snap = await getDocs(query(collection(db, "departments"), where("churchId", "==", churchId), orderBy("name")));
         snap.forEach((d) => {
           const opt = document.createElement("option");
           opt.value = d.id;
@@ -154,13 +244,17 @@
         console.warn("Couldn't load departments (this is fine before any exist):", err);
       }
     }
-    loadDepartmentOptions();
 
-    window.onDepartmentChange = () => {
-      const isGeneral = document.getElementById("regDepartment").value === "general";
-      document.getElementById("workerToggleGroup").classList.toggle("hidden", isGeneral);
-      if (isGeneral) document.getElementById("regIsWorker").checked = false;
-      else document.getElementById("regIsWorker").checked = true;
+    let isWorkerChoice = false;
+
+    window.setWorkerChoice = (isWorker) => {
+      isWorkerChoice = isWorker;
+      document.getElementById("workerChoiceYes").classList.toggle("active", isWorker);
+      document.getElementById("workerChoiceYes").setAttribute("aria-pressed", String(isWorker));
+      document.getElementById("workerChoiceNo").classList.toggle("active", !isWorker);
+      document.getElementById("workerChoiceNo").setAttribute("aria-pressed", String(!isWorker));
+      document.getElementById("departmentGroup").classList.toggle("hidden", !isWorker);
+      if (!isWorker) document.getElementById("regDepartment").value = "";
     };
 
     window.handleLogin = async () => {
@@ -184,15 +278,20 @@
       const name = document.getElementById("regName").value.trim();
       const email = document.getElementById("regEmail").value.trim();
       const phone = document.getElementById("regPhone").value.trim();
-      const department = document.getElementById("regDepartment").value;
-      const departmentName = document.getElementById("regDepartment").selectedOptions[0].text;
-      const isWorker = department === "general" ? false : document.getElementById("regIsWorker").checked;
+      const isWorker = isWorkerChoice;
+      const deptSelect = document.getElementById("regDepartment");
+      const department = isWorker ? deptSelect.value : "general";
+      const departmentName = isWorker
+        ? (deptSelect.selectedOptions[0] ? deptSelect.selectedOptions[0].text : "")
+        : "General Congregation";
       const position = document.getElementById("regPosition").value.trim();
       const password = document.getElementById("regPassword").value;
       const errEl = document.getElementById("registerError");
       const succEl = document.getElementById("registerSuccess");
       errEl.classList.add("hidden"); succEl.classList.add("hidden");
-      if (!name || !email || !phone || !department || !password) { errEl.textContent = "Please fill in all fields."; errEl.classList.remove("hidden"); return; }
+      if (!selectedChurchId) { errEl.textContent = "Please select your church first."; errEl.classList.remove("hidden"); return; }
+      if (!name || !email || !phone || !password) { errEl.textContent = "Please fill in all fields."; errEl.classList.remove("hidden"); return; }
+      if (isWorker && !department) { errEl.textContent = "Please select your department."; errEl.classList.remove("hidden"); return; }
       if (password.length < 6) { errEl.textContent = "Password must be at least 6 characters."; errEl.classList.remove("hidden"); return; }
       try {
         const btn = document.querySelector("#registerForm .btn-primary");
@@ -200,6 +299,7 @@
         const cred = await createUserWithEmailAndPassword(auth, email, password);
         await setDoc(doc(db, "users", cred.user.uid), {
           uid: cred.user.uid, name, email, phone,
+          churchId: selectedChurchId, churchName: selectedChurchName,
           department, departmentName, isWorker, position,
           role: "member", points: 0, streak: 0, totalAttended: 0, totalMissed: 0,
           devotionalStreak: 0, devotionalLongestStreak: 0, totalDevotionals: 0, lastDevotionalDate: null,

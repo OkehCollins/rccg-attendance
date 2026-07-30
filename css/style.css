@@ -120,6 +120,15 @@ button { font: inherit; }
 .form-switch { text-align: center; font-size: 13px; color: var(--white-dim); margin-top: 20px; }
 .form-switch a { color: var(--gold); text-decoration: none; font-weight: 500; cursor: pointer; }
 .form-switch a:hover { text-decoration: underline; }
+
+.choice-toggle { display: flex; gap: 10px; }
+.choice-btn { flex: 1; padding: 12px 10px; border-radius: var(--radius-sm); border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.04); color: var(--white-dim); font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 600; cursor: pointer; transition: transform 0.15s var(--spring), border-color 0.2s ease, background 0.2s ease, color 0.2s ease; }
+.choice-btn:hover { border-color: rgba(201,168,76,0.3); color: var(--white); }
+.choice-btn.active { background: rgba(201,168,76,0.12); border-color: rgba(201,168,76,0.5); color: var(--gold-light); }
+.choice-btn:active { transform: scale(0.97); }
+
+.church-chip { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 16px; border-radius: var(--radius-sm); background: rgba(201,168,76,0.08); border: 1px solid rgba(201,168,76,0.25); margin-bottom: 20px; font-size: 14px; font-weight: 600; color: var(--gold-light); }
+.church-chip .link-muted { font-weight: 500; }
 .error-msg { background: rgba(192,57,43,0.15); border: 1px solid rgba(192,57,43,0.3); border-radius: var(--radius-sm); padding: 10px 14px; font-size: 13px; color: #F1948A; margin-top: 8px; animation: fadeSlideDown 0.3s var(--spring) both; }
 .success-msg { background: rgba(30,132,73,0.15); border: 1px solid rgba(30,132,73,0.3); border-radius: var(--radius-sm); padding: 10px 14px; font-size: 13px; color: #82E0AA; margin-top: 8px; animation: fadeSlideDown 0.3s var(--spring) both; }
 .hidden { display: none !important; }

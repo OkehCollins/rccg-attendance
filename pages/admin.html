@@ -232,13 +232,14 @@
       from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
     import { uploadToCloudinary } from "../js/cloudinary-config.js";
     import { sendEmailAlert } from "../js/emailjs-config.js";
-    import { icon } from "../js/icons.js";
+    import { icon, escapeHtml } from "../js/icons.js";
     import { initReveal, staggerIn, showToast, imageToSquareBlob, openModal, closeModal } from "../js/motion.js";
     import { todayKey } from "../js/devotionals.js";
 
     // "admin" is the old, pre-department role — treated exactly like superAdmin
     // so an account that existed before this update doesn't get locked out.
     let myRole = null;        // 'superAdmin' | 'departmentAdmin'
+    let myChurchId = null;
     let myDept = null;        // department id, only meaningful for departmentAdmin
     let myDeptName = null;
     let allDepartments = [];  // [{id, name}]
@@ -271,7 +272,7 @@
     };
 
     async function loadDepartments() {
-      const snap = await getDocs(query(collection(db,"departments"), orderBy("name")));
+      const snap = await getDocs(query(collection(db,"departments"), where("churchId","==",myChurchId), orderBy("name")));
       allDepartments = snap.docs.map(d=>({id:d.id, ...d.data()}));
     }
 
@@ -295,7 +296,7 @@
           const attSnap=await getDocs(query(collection(db,"attendance"),where("meetingId","==",meeting.id)));
           totalPresent += attSnap.size;
           let liveHtml=`<div class="table-scroll"><table class="attendance-table"><thead><tr><th>Name</th><th>In</th><th>Out</th><th>Status</th></tr></thead><tbody>`;
-          attSnap.forEach(d=>{const a=d.data();const inT=a.clockInTime?new Date(a.clockInTime.toDate()).toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"}):"—";const outT=a.clockOutTime?new Date(a.clockOutTime.toDate()).toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"}):"Still In";liveHtml+=`<tr><td><strong>${a.userName}</strong></td><td>${inT}</td><td>${outT}</td><td><span class="badge ${a.late?"badge-late":"badge-present"}">${a.late?"Late":"On Time"}</span></td></tr>`;});
+          attSnap.forEach(d=>{const a=d.data();const inT=a.clockInTime?new Date(a.clockInTime.toDate()).toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"}):"—";const outT=a.clockOutTime?new Date(a.clockOutTime.toDate()).toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"}):"Still In";liveHtml+=`<tr><td><strong>${escapeHtml(a.userName)}</strong></td><td>${inT}</td><td>${outT}</td><td><span class="badge ${a.late?"badge-late":"badge-present"}">${a.late?"Late":"On Time"}</span></td></tr>`;});
           liveHtml+=`</tbody></table></div>`;
           const scopeLabel = meeting.scope==="congregation" ? "Congregation-wide" : departmentName(meeting.department);
           blocks += `<div style="margin-bottom:20px;"><div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;"><div><div style="font-family:'Cinzel',serif;font-size:18px;font-weight:700;">${meeting.title} <span class="badge badge-department" style="margin-left:6px;">${scopeLabel}</span></div><div style="font-size:13px;color:var(--white-dim);margin-top:4px;">${meeting.venue} · ${attSnap.size} present</div></div><button class="btn-decline" onclick="endMeeting('${meeting.id}')">End Meeting</button></div>${liveHtml}</div>`;
@@ -313,7 +314,7 @@
 
     function avatarHTML(u, size=44) {
       const initials=(u.name||"?").split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase();
-      return u.photoURL ? `<img src="${u.photoURL}" alt="${u.name}"/>` : initials;
+      return u.photoURL ? `<img src="${escapeHtml(u.photoURL)}" alt="${escapeHtml(u.name)}"/>` : initials;
     }
 
     window.switchTab=(tab)=>{
@@ -336,10 +337,10 @@
     async function loadDevotionalOverview(){
       const el=document.getElementById("devoOverview");
       try {
-        const mSnap=await getDocs(query(collection(db,"users"),where("role","==","member")));
+        const mSnap=await getDocs(query(collection(db,"users"),where("churchId","==",myChurchId),where("role","==","member")));
         const total=mSnap.size;
         const today=todayKey();
-        const dSnap=await getDocs(query(collection(db,"devotionalLogs"),where("date","==",today)));
+        const dSnap=await getDocs(query(collection(db,"devotionalLogs"),where("churchId","==",myChurchId),where("date","==",today)));
         const uniqueUsers=new Set(dSnap.docs.map(d=>d.data().userId)).size;
         const pct = total>0 ? Math.round((uniqueUsers/total)*100) : 0;
         el.innerHTML=`<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
@@ -356,19 +357,20 @@
     }
 
     async function loadOverview(){
-      // Flagged members: realtime. Firestore's security rules automatically
-      // scope this per role — a super admin's listener sees every department;
-      // a department admin's identical, unfiltered-looking query only ever
-      // returns their own department's members, enforced server-side.
+      // Flagged members: realtime. Scoped to this church client-side, and
+      // Firestore's security rules layer role-based scoping on top of that —
+      // a super admin's listener sees every department in the church; a
+      // department admin's identical-looking query only ever returns their
+      // own department's members, enforced server-side.
       if (!flaggedListenerAttached) {
         flaggedListenerAttached = true;
-        onSnapshot(query(collection(db,"users"),where("role","==","member")), (mSnap) => {
+        onSnapshot(query(collection(db,"users"),where("churchId","==",myChurchId),where("role","==","member")), (mSnap) => {
           document.getElementById("oTotalMembers").textContent=mSnap.size;
           const flagged=mSnap.docs.filter(d=>(d.data().totalMissed||0)>=2);
           document.getElementById("oFlagged").textContent=flagged.length;
           const flaggedEl=document.getElementById("flaggedList");
           if(!flagged.length){flaggedEl.innerHTML=`<div class="empty-state">${icon("check","icon-xl")}<p>No flagged members. Everyone's showing up!</p></div>`;}
-          else{flaggedEl.innerHTML=`<div class="table-scroll"><table class="attendance-table"><thead><tr><th>Name</th><th>Department</th><th>Missed</th><th>Email</th></tr></thead><tbody>`+flagged.map(d=>{const u=d.data();return`<tr><td><strong>${u.name}</strong></td><td>${departmentName(u.department)}</td><td><span class="badge badge-flagged">${u.totalMissed} missed</span></td><td style="font-size:12px;color:var(--white-dim);">${u.email}</td></tr>`;}).join("")+`</tbody></table></div>`;}
+          else{flaggedEl.innerHTML=`<div class="table-scroll"><table class="attendance-table"><thead><tr><th>Name</th><th>Department</th><th>Missed</th><th>Email</th></tr></thead><tbody>`+flagged.map(d=>{const u=d.data();return`<tr><td><strong>${escapeHtml(u.name)}</strong></td><td>${departmentName(u.department)}</td><td><span class="badge badge-flagged">${u.totalMissed} missed</span></td><td style="font-size:12px;color:var(--white-dim);">${escapeHtml(u.email)}</td></tr>`;}).join("")+`</tbody></table></div>`;}
 
           const currentFlaggedIds = new Set(flagged.map(d=>d.id));
           if (seenFlaggedIds !== null) {
@@ -384,11 +386,12 @@
         });
       }
 
-      // Pending excuses: realtime, same rules-enforced scoping as above — a
+      // Pending excuses: realtime, scoped to this church client-side; the
+      // same rules-enforced department scoping as above applies on top — a
       // department admin only ever sees excuses tied to their own department's meetings.
       if (!excuseListenerAttached) {
         excuseListenerAttached = true;
-        onSnapshot(query(collection(db,"excuses"),where("status","==","pending")), (eSnap) => {
+        onSnapshot(query(collection(db,"excuses"),where("churchId","==",myChurchId),where("status","==","pending")), (eSnap) => {
           document.getElementById("oPending").textContent=eSnap.size;
           document.getElementById("excuseBadge").innerHTML = eSnap.size>0 ? `<span class="tab-count">${eSnap.size}</span>` : "";
 
@@ -396,7 +399,7 @@
           if (seenExcuseIds !== null) {
             eSnap.docs.forEach(d => {
               if (!seenExcuseIds.has(d.id)) {
-                showToast(`New excuse request from ${d.data().userName}`, "success", icon("mail"));
+                showToast(`New excuse request from ${escapeHtml(d.data().userName)}`, "success", icon("mail"));
               }
             });
             if (!document.getElementById("tab-excuses").classList.contains("hidden")) loadExcuses();
@@ -409,12 +412,13 @@
 
       await loadDevotionalOverview();
 
-      // Active meetings: realtime. Same rules-enforced scoping — a super admin
-      // sees every active meeting church-wide; a department admin's identical
+      // Active meetings: realtime, scoped to this church client-side; the
+      // same rules-enforced scoping applies on top — a super admin sees
+      // every active meeting church-wide; a department admin's identical
       // query only ever returns congregation-wide meetings plus their own department's.
       if (!meetingListenerAttached) {
         meetingListenerAttached = true;
-        onSnapshot(query(collection(db,"meetings"),where("status","==","active")), (aSnap) => {
+        onSnapshot(query(collection(db,"meetings"),where("churchId","==",myChurchId),where("status","==","active")), (aSnap) => {
           renderOverviewMeeting(aSnap.docs.map(d=>({id:d.id, ...d.data()})));
         }, (err) => {
           document.getElementById("overviewActiveMeeting").innerHTML = `<div class="empty-state">${icon("alert","icon-xl")}<p>Couldn't check for a live meeting: ${err.message}</p></div>`;
@@ -430,15 +434,15 @@
       try {
         let snap;
         if (scope.mode === "all") {
-          snap = await getDocs(collection(db,"meetings"));
+          snap = await getDocs(query(collection(db,"meetings"), where("churchId","==",myChurchId)));
         } else if (scope.mode === "congregation") {
-          snap = await getDocs(query(collection(db,"meetings"), where("scope","==","congregation")));
+          snap = await getDocs(query(collection(db,"meetings"), where("churchId","==",myChurchId), where("scope","==","congregation")));
         } else {
-          snap = await getDocs(query(collection(db,"meetings"), where("scope","==","department"), where("department","==",scope.dept)));
+          snap = await getDocs(query(collection(db,"meetings"), where("churchId","==",myChurchId), where("scope","==","department"), where("department","==",scope.dept)));
         }
         const meetings = snap.docs.map(d=>({id:d.id, ...d.data()})).sort((a,b)=>(b.scheduledAt?.toMillis()||0)-(a.scheduledAt?.toMillis()||0));
         if(!meetings.length){el.innerHTML=`<div class="empty-state">${icon("calendar","icon-xl")}<p>No meetings yet.</p></div>`;return;}
-        el.innerHTML=meetings.map(m=>{const dt=m.scheduledAt?new Date(m.scheduledAt.toDate()).toLocaleString("en-NG",{weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}):"—";const sc=m.status==="active"?"badge-present":m.status==="ended"?"badge-absent":"badge-pending";const scopeLabel=m.scope==="congregation"?"Congregation":departmentName(m.department);return`<div style="padding:14px 0;border-bottom:1px solid rgba(255,255,255,0.05);"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;"><div><div style="font-weight:600;font-size:14px;">${m.title} <span class="badge badge-department" style="margin-left:4px;">${scopeLabel}</span></div><div style="font-size:12px;color:var(--white-dim);margin-top:2px;">${dt} · ${m.venue||"—"}</div></div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span class="badge ${sc}">${m.status}</span>${m.status==="upcoming"?`<button class="btn-approve" onclick="activateMeeting('${m.id}')">Start</button>`:""} ${m.status==="active"?`<button class="btn-decline" onclick="endMeeting('${m.id}')">End</button>`:""} ${m.status!=="active"?`<button class="btn-decline" style="padding:5px 10px;font-size:11px;" onclick="deleteMeeting('${m.id}')">Delete</button>`:""}</div></div></div>`;}).join("");
+        el.innerHTML=meetings.map(m=>{const dt=m.scheduledAt?new Date(m.scheduledAt.toDate()).toLocaleString("en-NG",{weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}):"—";const sc=m.status==="active"?"badge-present":m.status==="ended"?"badge-absent":"badge-pending";const scopeLabel=m.scope==="congregation"?"Congregation":departmentName(m.department);return`<div style="padding:14px 0;border-bottom:1px solid rgba(255,255,255,0.05);"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;"><div><div style="font-weight:600;font-size:14px;">${escapeHtml(m.title)} <span class="badge badge-department" style="margin-left:4px;">${scopeLabel}</span></div><div style="font-size:12px;color:var(--white-dim);margin-top:2px;">${dt} · ${escapeHtml(m.venue)||"—"}</div></div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span class="badge ${sc}">${m.status}</span>${m.status==="upcoming"?`<button class="btn-approve" onclick="activateMeeting('${m.id}')">Start</button>`:""} ${m.status==="active"?`<button class="btn-decline" onclick="endMeeting('${m.id}')">End</button>`:""} ${m.status!=="active"?`<button class="btn-decline" style="padding:5px 10px;font-size:11px;" onclick="deleteMeeting('${m.id}')">Delete</button>`:""}</div></div></div>`;}).join("");
       } catch (err) {
         el.innerHTML = `<div class="empty-state">${icon("alert","icon-xl")}<p>Couldn't load meetings: ${err.message}</p></div>`;
       }
@@ -457,6 +461,7 @@
       }
     }
     window.onMeetingScopeChange = () => {};
+    const meetingsEndingInFlight = new Set(); // guards against a double-click re-running the absence pass
 
     window.createMeeting=async()=>{
       const title=document.getElementById("mTitle").value.trim(),date=document.getElementById("mDate").value,time=document.getElementById("mTime").value,venue=document.getElementById("mVenue").value.trim(),lat=parseFloat(document.getElementById("mLat").value),lng=parseFloat(document.getElementById("mLng").value),radius=parseInt(document.getElementById("mRadius").value)||150,lateMin=parseInt(document.getElementById("mLate").value)||15,notes=document.getElementById("mNotes").value.trim();
@@ -464,7 +469,7 @@
       if(!title||!date||!time||!venue||isNaN(lat)||isNaN(lng)){showToast("Fill all fields including GPS coordinates.","error",icon("alert"));return;}
       const scope = scopeVal === "congregation" ? "congregation" : "department";
       const department = scopeVal === "congregation" ? null : scopeVal.split(":")[1];
-      await addDoc(collection(db,"meetings"),{title,venue,lat,lng,radiusMeters:radius,lateThresholdMinutes:lateMin,notes,scope,department,scheduledAt:Timestamp.fromDate(new Date(`${date}T${time}`)),status:"upcoming",createdAt:serverTimestamp()});
+      await addDoc(collection(db,"meetings"),{title,venue,lat,lng,radiusMeters:radius,lateThresholdMinutes:lateMin,notes,scope,department,churchId:myChurchId,scheduledAt:Timestamp.fromDate(new Date(`${date}T${time}`)),status:"upcoming",createdAt:serverTimestamp()});
       ["mTitle","mDate","mTime","mVenue","mLat","mLng","mNotes"].forEach(id=>document.getElementById(id).value="");
       document.getElementById("mRadius").value="150";
       showToast("Meeting scheduled! ✅"); loadMeetings();
@@ -476,35 +481,43 @@
     };
 
     window.endMeeting=async(id)=>{
-      const meetingSnap = await getDoc(doc(db,"meetings",id));
-      const meeting = meetingSnap.data();
-      await updateDoc(doc(db,"meetings",id),{status:"ended",endedAt:serverTimestamp()});
-      // Only the members this meeting was actually for can be marked absent —
-      // congregation meetings check everyone, department meetings check only that department.
-      const mSnap = meeting.scope==="congregation"
-        ? await getDocs(query(collection(db,"users"),where("role","==","member")))
-        : await getDocs(query(collection(db,"users"),where("role","==","member"),where("department","==",meeting.department)));
-      const attSnap=await getDocs(query(collection(db,"attendance"),where("meetingId","==",id)));
-      const attendedIds=new Set(attSnap.docs.map(d=>d.data().userId));
-      const newlyFlagged = [];
-      for(const m of mSnap.docs){
-        const uid=m.id,udata=m.data();
-        if(!attendedIds.has(uid)){
-          const exSnap=await getDocs(query(collection(db,"excuses"),where("userId","==",uid),where("meetingId","==",id),where("status","==","approved")));
-          if(exSnap.empty){
-            const newTotalMissed = (udata.totalMissed||0)+1;
-            await updateDoc(doc(db,"users",uid),{totalMissed:newTotalMissed,streak:0});
-            if(newTotalMissed===2) newlyFlagged.push(udata.name);
+      if (meetingsEndingInFlight.has(id)) return; // already processing this meeting — ignore the repeat click
+      meetingsEndingInFlight.add(id);
+      try {
+        const meetingSnap = await getDoc(doc(db,"meetings",id));
+        const meeting = meetingSnap.data();
+        await updateDoc(doc(db,"meetings",id),{status:"ended",endedAt:serverTimestamp()});
+        // Only the members this meeting was actually for can be marked absent —
+        // congregation meetings check everyone, department meetings check only that department.
+        const mSnap = meeting.scope==="congregation"
+          ? await getDocs(query(collection(db,"users"),where("churchId","==",myChurchId),where("role","==","member")))
+          : await getDocs(query(collection(db,"users"),where("churchId","==",myChurchId),where("role","==","member"),where("department","==",meeting.department)));
+        const attSnap=await getDocs(query(collection(db,"attendance"),where("meetingId","==",id)));
+        const attendedIds=new Set(attSnap.docs.map(d=>d.data().userId));
+        const newlyFlagged = [];
+        for(const m of mSnap.docs){
+          const uid=m.id,udata=m.data();
+          if(!attendedIds.has(uid)){
+            const exSnap=await getDocs(query(collection(db,"excuses"),where("userId","==",uid),where("meetingId","==",id),where("status","==","approved")));
+            if(exSnap.empty){
+              const newTotalMissed = (udata.totalMissed||0)+1;
+              await updateDoc(doc(db,"users",uid),{totalMissed:newTotalMissed,streak:0});
+              if(newTotalMissed===2) newlyFlagged.push(udata.name);
+            }
           }
         }
+        if(newlyFlagged.length){
+          sendEmailAlert(
+            newlyFlagged.length===1 ? `${newlyFlagged[0]} has been flagged` : `${newlyFlagged.length} members have been flagged`,
+            `The following member${newlyFlagged.length===1?"":"s"} just crossed 2 missed meetings without an approved excuse (from "${meeting.title}"):\n\n${newlyFlagged.map(n=>"• "+n).join("\n")}\n\nSee the Overview tab in the admin dashboard for details.`
+          );
+        }
+        showToast("Meeting ended. Absences recorded."); loadMeetings(); loadOverview();
+      } catch (err) {
+        showToast(`Couldn't fully end the meeting: ${err.message}. Check the Meetings tab before trying again.`, "error", icon("alert"));
+      } finally {
+        meetingsEndingInFlight.delete(id);
       }
-      if(newlyFlagged.length){
-        sendEmailAlert(
-          newlyFlagged.length===1 ? `${newlyFlagged[0]} has been flagged` : `${newlyFlagged.length} members have been flagged`,
-          `The following member${newlyFlagged.length===1?"":"s"} just crossed 2 missed meetings without an approved excuse (from "${meeting.title}"):\n\n${newlyFlagged.map(n=>"• "+n).join("\n")}\n\nSee the Overview tab in the admin dashboard for details.`
-        );
-      }
-      showToast("Meeting ended. Absences recorded."); loadMeetings(); loadOverview();
     };
 
     window.deleteMeeting=async(id)=>{if(!confirm("Delete this meeting?"))return;await deleteDoc(doc(db,"meetings",id));showToast("Meeting deleted.");loadMeetings();};
@@ -514,9 +527,9 @@
       const scope = activeScopeFilter();
       try {
         let snap;
-        if (scope.mode === "all") snap = await getDocs(collection(db,"users"));
-        else if (scope.mode === "congregation") snap = await getDocs(query(collection(db,"users"), where("department","==","general")));
-        else snap = await getDocs(query(collection(db,"users"), where("department","==",scope.dept)));
+        if (scope.mode === "all") snap = await getDocs(query(collection(db,"users"), where("churchId","==",myChurchId)));
+        else if (scope.mode === "congregation") snap = await getDocs(query(collection(db,"users"), where("churchId","==",myChurchId), where("department","==","general")));
+        else snap = await getDocs(query(collection(db,"users"), where("churchId","==",myChurchId), where("department","==",scope.dept)));
         allMembers=snap.docs.map(d=>({id:d.id,...d.data()})).filter(u=>u.role==="member"||u.role==="departmentAdmin"||u.role==="superAdmin").sort((a,b)=>a.name.localeCompare(b.name));
         renderMembersGrid(allMembers);
         document.getElementById("membersSubtitle").textContent=`${allMembers.length} member${allMembers.length!==1?"s":""} total`;
@@ -536,7 +549,7 @@
     function renderMembersGrid(members){
       const grid=document.getElementById("membersGrid");
       if(!members.length){grid.innerHTML=`<div class="empty-state">${icon("users","icon-xl")}<p>No members yet.</p></div>`;return;}
-      grid.innerHTML=members.map(u=>{const flagged=(u.totalMissed||0)>=2;const rate=u.totalAttended+u.totalMissed>0?Math.round((u.totalAttended/(u.totalAttended+u.totalMissed))*100):100;return`<div class="member-card ${flagged?"flagged-card":""}"><div class="member-card-top"><div class="member-card-avatar-wrap"><div class="avatar member-card-avatar">${avatarHTML(u)}</div><button class="avatar-edit-btn" onclick="openAdminAvatarPicker('${u.id}')" aria-label="Change photo">${icon("camera")}</button></div><div style="flex:1;min-width:0;"><div class="member-card-name">${u.name} ${flagged?"⚠️":""}</div><div class="member-card-role">${u.position || "Member"} · <span class="badge badge-department">${departmentName(u.department)}</span></div><div style="margin-top:4px;">${roleBadgeFor(u)}</div></div><button class="icon-btn-inline" onclick="openEditMemberModal('${u.id}')" aria-label="Edit member" title="Edit">${icon("edit")}</button></div><div class="member-card-stats"><div class="member-stat"><div class="member-stat-label">Attended</div><div class="member-stat-value" style="color:var(--green-light);">${u.totalAttended||0}</div></div><div class="member-stat"><div class="member-stat-label">Missed</div><div class="member-stat-value" style="color:${flagged?"#E74C3C":"var(--white)"};">${u.totalMissed||0}</div></div><div class="member-stat"><div class="member-stat-label">Points</div><div class="member-stat-value" style="color:var(--gold);">${u.points||0}</div></div><div class="member-stat"><div class="member-stat-label">Rate</div><div class="member-stat-value">${rate}%</div></div></div></div>`;}).join("");
+      grid.innerHTML=members.map(u=>{const flagged=(u.totalMissed||0)>=2;const rate=u.totalAttended+u.totalMissed>0?Math.round((u.totalAttended/(u.totalAttended+u.totalMissed))*100):100;return`<div class="member-card ${flagged?"flagged-card":""}"><div class="member-card-top"><div class="member-card-avatar-wrap"><div class="avatar member-card-avatar">${avatarHTML(u)}</div><button class="avatar-edit-btn" onclick="openAdminAvatarPicker('${u.id}')" aria-label="Change photo">${icon("camera")}</button></div><div style="flex:1;min-width:0;"><div class="member-card-name">${escapeHtml(u.name)} ${flagged?"⚠️":""}</div><div class="member-card-role">${escapeHtml(u.position) || "Member"} · <span class="badge badge-department">${departmentName(u.department)}</span></div><div style="margin-top:4px;">${roleBadgeFor(u)}</div></div><button class="icon-btn-inline" onclick="openEditMemberModal('${u.id}')" aria-label="Edit member" title="Edit">${icon("edit")}</button></div><div class="member-card-stats"><div class="member-stat"><div class="member-stat-label">Attended</div><div class="member-stat-value" style="color:var(--green-light);">${u.totalAttended||0}</div></div><div class="member-stat"><div class="member-stat-label">Missed</div><div class="member-stat-value" style="color:${flagged?"#E74C3C":"var(--white)"};">${u.totalMissed||0}</div></div><div class="member-stat"><div class="member-stat-label">Points</div><div class="member-stat-value" style="color:var(--gold);">${u.points||0}</div></div><div class="member-stat"><div class="member-stat-label">Rate</div><div class="member-stat-value">${rate}%</div></div></div></div>`;}).join("");
     }
 
     window.filterMembers=()=>{const q=document.getElementById("memberSearch").value.toLowerCase();renderMembersGrid(allMembers.filter(m=>m.name.toLowerCase().includes(q)));};
@@ -622,12 +635,12 @@
       const scope = activeScopeFilter();
       try {
         let snap;
-        if (scope.mode === "all") snap = await getDocs(collection(db,"excuses"));
-        else if (scope.mode === "congregation") snap = await getDocs(query(collection(db,"excuses"), where("meetingScope","==","congregation")));
-        else snap = await getDocs(query(collection(db,"excuses"), where("meetingScope","==","department"), where("meetingDepartment","==",scope.dept)));
+        if (scope.mode === "all") snap = await getDocs(query(collection(db,"excuses"), where("churchId","==",myChurchId)));
+        else if (scope.mode === "congregation") snap = await getDocs(query(collection(db,"excuses"), where("churchId","==",myChurchId), where("meetingScope","==","congregation")));
+        else snap = await getDocs(query(collection(db,"excuses"), where("churchId","==",myChurchId), where("meetingScope","==","department"), where("meetingDepartment","==",scope.dept)));
         const excuses = snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.submittedAt?.toMillis()||0)-(a.submittedAt?.toMillis()||0));
         if(!excuses.length){el.innerHTML=`<div class="empty-state">${icon("clipboard","icon-xl")}<p>No excuse requests.</p></div>`;return;}
-        el.innerHTML=excuses.map(e=>{const initials=e.userName?e.userName.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase():"?";const date=e.submittedAt?new Date(e.submittedAt.toDate()).toLocaleDateString("en-NG",{day:"numeric",month:"short",year:"numeric"}):"—";const sc=e.status==="pending"?"badge-pending":e.status==="approved"?"badge-present":"badge-absent";return`<div class="excuse-request"><div class="avatar excuse-req-avatar">${initials}</div><div class="excuse-req-body"><div class="excuse-req-name">${e.userName}</div><div class="excuse-req-meeting">${e.meetingTitle} · Submitted ${date}</div><div class="excuse-req-reason">${e.reason}</div><div style="margin-top:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;"><span class="badge ${sc}">${e.status}</span>${e.status==="pending"?`<div class="excuse-req-actions"><button class="btn-approve" onclick="reviewExcuse('${e.id}','${e.userId}','approved')">Approve</button><button class="btn-decline" onclick="reviewExcuse('${e.id}','${e.userId}','declined')">Decline</button></div>`:""}</div></div></div>`;}).join("");
+        el.innerHTML=excuses.map(e=>{const initials=e.userName?e.userName.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase():"?";const date=e.submittedAt?new Date(e.submittedAt.toDate()).toLocaleDateString("en-NG",{day:"numeric",month:"short",year:"numeric"}):"—";const sc=e.status==="pending"?"badge-pending":e.status==="approved"?"badge-present":"badge-absent";return`<div class="excuse-request"><div class="avatar excuse-req-avatar">${initials}</div><div class="excuse-req-body"><div class="excuse-req-name">${escapeHtml(e.userName)}</div><div class="excuse-req-meeting">${escapeHtml(e.meetingTitle)} · Submitted ${date}</div><div class="excuse-req-reason">${escapeHtml(e.reason)}</div><div style="margin-top:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;"><span class="badge ${sc}">${e.status}</span>${e.status==="pending"?`<div class="excuse-req-actions"><button class="btn-approve" onclick="reviewExcuse('${e.id}','${e.userId}','approved')">Approve</button><button class="btn-decline" onclick="reviewExcuse('${e.id}','${e.userId}','declined')">Decline</button></div>`:""}</div></div></div>`;}).join("");
       } catch (err) {
         el.innerHTML = `<div class="empty-state">${icon("alert","icon-xl")}<p>Couldn't load excuses: ${err.message}</p></div>`;
       }
@@ -640,13 +653,13 @@
       const scope = activeScopeFilter();
       try {
         let snap;
-        if (scope.mode === "all") snap = await getDocs(query(collection(db,"users"),where("role","==","member")));
-        else if (scope.mode === "congregation") snap = await getDocs(query(collection(db,"users"),where("role","==","member"),where("department","==","general")));
-        else snap = await getDocs(query(collection(db,"users"),where("role","==","member"),where("department","==",scope.dept)));
+        if (scope.mode === "all") snap = await getDocs(query(collection(db,"users"),where("churchId","==",myChurchId),where("role","==","member")));
+        else if (scope.mode === "congregation") snap = await getDocs(query(collection(db,"users"),where("churchId","==",myChurchId),where("role","==","member"),where("department","==","general")));
+        else snap = await getDocs(query(collection(db,"users"),where("churchId","==",myChurchId),where("role","==","member"),where("department","==",scope.dept)));
         const members=snap.docs.map(d=>d.data()).sort((a,b)=>(b.points||0)-(a.points||0));
         if(!members.length){el.innerHTML=`<div class="empty-state">${icon("trophy","icon-xl")}<p>No data yet.</p></div>`;return;}
         const rC=["gold-rank","silver-rank","bronze-rank"],rI=["🥇","🥈","🥉"];
-        el.innerHTML=members.map((u,i)=>`<li class="leaderboard-item"><div class="lb-rank ${rC[i]||""}">${i<3?rI[i]:`${i+1}`}</div><div class="avatar lb-avatar">${avatarHTML(u)}</div><div style="flex:1;min-width:0;"><div class="lb-name">${u.name}</div><div class="lb-role">${departmentName(u.department)} · Streak: ${u.streak||0} 🔥 · Word: ${u.devotionalStreak||0}🕯️</div></div><div class="lb-points">${u.points||0} pts</div></li>`).join("");
+        el.innerHTML=members.map((u,i)=>`<li class="leaderboard-item"><div class="lb-rank ${rC[i]||""}">${i<3?rI[i]:`${i+1}`}</div><div class="avatar lb-avatar">${avatarHTML(u)}</div><div style="flex:1;min-width:0;"><div class="lb-name">${escapeHtml(u.name)}</div><div class="lb-role">${departmentName(u.department)} · Streak: ${u.streak||0} 🔥 · Word: ${u.devotionalStreak||0}🕯️</div></div><div class="lb-points">${u.points||0} pts</div></li>`).join("");
       } catch (err) {
         el.innerHTML = `<div class="empty-state">${icon("alert","icon-xl")}<p>Couldn't load leaderboard: ${err.message}</p></div>`;
       }
@@ -674,7 +687,7 @@
       const scope = scopeVal === "congregation" ? "congregation" : "department";
       const department = scopeVal === "congregation" ? null : scopeVal.split(":")[1];
       await addDoc(collection(db,"announcements"), {
-        title, message, scope, department,
+        title, message, scope, department, churchId: myChurchId,
         postedBy: auth.currentUser.uid, postedByName: document.getElementById("navName").textContent,
         createdAt: serverTimestamp()
       });
@@ -689,8 +702,8 @@
       const scope = activeScopeFilter();
       try {
         let snap;
-        if (scope.mode === "all" || myRole === "superAdmin") snap = await getDocs(collection(db,"announcements"));
-        else snap = await getDocs(query(collection(db,"announcements"), where("department","==",myDept)));
+        if (scope.mode === "all" || myRole === "superAdmin") snap = await getDocs(query(collection(db,"announcements"), where("churchId","==",myChurchId)));
+        else snap = await getDocs(query(collection(db,"announcements"), where("churchId","==",myChurchId), where("department","==",myDept)));
         let anns = snap.docs.map(d=>({id:d.id,...d.data()}));
         if (scope.mode === "congregation") anns = anns.filter(a=>a.scope==="congregation");
         else if (scope.mode === "department") anns = anns.filter(a=>a.scope==="department" && a.department===scope.dept);
@@ -727,7 +740,7 @@
       const result = document.getElementById("migrateResult");
       btn.textContent = "Checking accounts…";
       try {
-        const snap = await getDocs(collection(db,"users"));
+        const snap = await getDocs(query(collection(db,"users"), where("churchId","==",myChurchId)));
         const toFix = snap.docs.filter(d => !d.data().department);
         if (!toFix.length) {
           result.textContent = "Nothing to fix — every account already has a department.";
@@ -760,11 +773,12 @@
     window.createDepartment = async () => {
       const name = document.getElementById("deptName").value.trim();
       if (!name) { showToast("Enter a department name.","error",icon("alert")); return; }
-      let slug = name.toLowerCase().trim().replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"");
-      if (!slug || slug==="general") slug = "dept-" + Math.random().toString(36).slice(2,8);
-      const existing = await getDoc(doc(db,"departments",slug));
-      if (existing.exists()) slug = slug + "-" + Math.random().toString(36).slice(2,5);
-      await setDoc(doc(db,"departments",slug), { name, createdAt: serverTimestamp(), createdBy: auth.currentUser.uid });
+      let slugPart = name.toLowerCase().trim().replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"");
+      if (!slugPart || slugPart==="general") slugPart = "dept-" + Math.random().toString(36).slice(2,8);
+      let deptId = `${myChurchId}__${slugPart}`;
+      const existing = await getDoc(doc(db,"departments",deptId));
+      if (existing.exists()) deptId = `${deptId}-` + Math.random().toString(36).slice(2,5);
+      await setDoc(doc(db,"departments",deptId), { name, churchId: myChurchId, createdAt: serverTimestamp(), createdBy: auth.currentUser.uid });
       document.getElementById("deptName").value = "";
       showToast(`"${name}" department created.`,"success",icon("check"));
       await loadDepartments();
@@ -778,14 +792,14 @@
       const el = document.getElementById("departmentsList");
       if (!allDepartments.length) { el.innerHTML = `<div class="empty-state">${icon("users","icon-xl")}<p>No departments created yet.</p></div>`; return; }
       try {
-        const usersSnap = await getDocs(collection(db,"users"));
+        const usersSnap = await getDocs(query(collection(db,"users"), where("churchId","==",myChurchId)));
         const users = usersSnap.docs.map(d=>d.data());
         el.innerHTML = allDepartments.map(dep => {
           const memberCount = users.filter(u=>u.department===dep.id).length;
           const deptAdmins = users.filter(u=>u.department===dep.id && u.role==="departmentAdmin").map(u=>u.name);
           return `<div style="padding:12px 0;border-bottom:1px solid rgba(255,255,255,0.05);">
-            <div style="font-weight:600;font-size:14px;">${dep.name}</div>
-            <div style="font-size:12px;color:var(--white-dim);margin-top:2px;">${memberCount} member${memberCount!==1?"s":""} · Admin${deptAdmins.length!==1?"s":""}: ${deptAdmins.length?deptAdmins.join(", "):"none assigned yet"}</div>
+            <div style="font-weight:600;font-size:14px;">${escapeHtml(dep.name)}</div>
+            <div style="font-size:12px;color:var(--white-dim);margin-top:2px;">${memberCount} member${memberCount!==1?"s":""} · Admin${deptAdmins.length!==1?"s":""}: ${deptAdmins.length?escapeHtml(deptAdmins.join(", ")):"none assigned yet"}</div>
           </div>`;
         }).join("");
       } catch (err) {
@@ -797,10 +811,24 @@
 
     onAuthStateChanged(auth,async(user)=>{
       if(!user){window.location.href="../index.html";return;}
-      const snap=await getDoc(doc(db,"users",user.uid));
-      const role = snap.exists() ? snap.data().role : null;
-      if(!snap.exists()||!["superAdmin","departmentAdmin","admin"].includes(role)){window.location.href="member.html";return;}
-      const u=snap.data();
+      let u, role;
+      try {
+        const snap=await getDoc(doc(db,"users",user.uid));
+        role = snap.exists() ? snap.data().role : null;
+        if(!snap.exists()||!["superAdmin","departmentAdmin","admin"].includes(role)){window.location.href="member.html";return;}
+        u=snap.data();
+        myChurchId = u.churchId;
+        const churchSnap = await getDoc(doc(db,"churches",myChurchId));
+        if (churchSnap.exists() && churchSnap.data().active === false) {
+          await signOut(auth);
+          window.location.href = "../index.html";
+          return;
+        }
+      } catch (err) {
+        showToast(`Couldn't load your profile: ${err.message}. Pull down to reload.`, "error", icon("alert"));
+        staggerIn(document.querySelectorAll("#tab-overview .reveal"), 70);
+        return;
+      }
 
       myRole = (role === "admin") ? "superAdmin" : role; // backward compatibility with the old flat "admin" role
       myDept = u.department || null;
@@ -809,7 +837,11 @@
       document.getElementById("navAvatar").innerHTML=avatarHTML(u);
       document.getElementById("navName").textContent=u.name;
 
-      await loadDepartments();
+      try {
+        await loadDepartments();
+      } catch (err) {
+        showToast(`Couldn't load departments: ${err.message}`, "error", icon("alert"));
+      }
       if (!allDepartments.length) allDepartments = []; // safe default before first department exists
 
       if (myRole === "superAdmin") {

@@ -4,7 +4,7 @@
 // Bump this version string any time you change any file in the
 // app (HTML, CSS, JS, icons). That forces every visitor's browser
 // to fetch fresh copies instead of serving stale cached ones.
-const CACHE_VERSION = "cc-media-shell-v3";
+const CACHE_VERSION = "cc-media-shell-v5";
 
 // The "app shell" — static files needed to boot the UI. Cached on
 // install so the app can open even with no signal.
@@ -13,6 +13,7 @@ const APP_SHELL = [
   "/index.html",
   "/pages/member.html",
   "/pages/admin.html",
+  "/pages/platform.html",
   "/css/style.css",
   "/js/firebase-config.js",
   "/js/cloudinary-config.js",
