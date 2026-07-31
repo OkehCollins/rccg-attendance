@@ -1,0 +1,4 @@
+# Netlify equivalent of vercel.json's rewrite — only used if you deploy
+# there instead. Netlify checks for a real matching file first, same as
+# Vercel, so this only ever catches a church slug like /champions-cathedral.
+/*  /index.html  200

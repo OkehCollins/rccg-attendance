@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
   <title>My Dashboard — Champions Cathedral</title>
-  <meta name="theme-color" content="#0A1628"/>
+  <meta name="theme-color" content="#1A1035"/>
 
   <link rel="icon" href="../favicon.ico" sizes="any"/>
   <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png"/>
@@ -12,7 +12,7 @@
   <link rel="manifest" href="../manifest.webmanifest"/>
 
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
   <link rel="stylesheet" href="../css/style.css"/>
 </head>
 <body class="dashboard-body">
@@ -53,7 +53,7 @@
       <div class="ring-card">
         <div class="ring-wrap">
           <svg viewBox="0 0 100 100" width="84" height="84">
-            <defs><linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#C9A84C"/><stop offset="100%" stop-color="#E2C472"/></linearGradient></defs>
+            <defs><linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#FF6B35"/><stop offset="100%" stop-color="#FF3D81"/></linearGradient></defs>
             <circle class="ring-track" cx="50" cy="50" r="40"/>
             <circle class="ring-progress" id="rankRing" cx="50" cy="50" r="40" stroke-dashoffset="251"/>
           </svg>
@@ -157,6 +157,7 @@
       from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
     import { uploadToCloudinary } from "../js/cloudinary-config.js";
     import { sendEmailAlert } from "../js/emailjs-config.js";
+    import { getSubscriptionState } from "../js/pricing-config.js";
     import { icon, escapeHtml } from "../js/icons.js";
     import { initReveal, staggerIn, confettiBurst, showToast, imageToSquareBlob, openModal, closeModal } from "../js/motion.js";
     import { getTodayDevotional, todayKey, DEVOTIONAL_BADGES } from "../js/devotionals.js";
@@ -391,7 +392,7 @@
         document.getElementById("devoBtnText").textContent = "Read Today — see you tomorrow";
         btn.disabled = true;
         const rect = btn.getBoundingClientRect();
-        confettiBurst({ x: rect.left + rect.width/2, y: rect.top, count: 50, colors: ["#FFB020","#FF5A36","#E2C472"] });
+        confettiBurst({ x: rect.left + rect.width/2, y: rect.top, count: 50, colors: ["#FFC93C","#FF4D4D","#FF3D81"] });
         showToast(`Word logged — ${newStreak}-day streak! +3 pts`, "success", icon("flame"));
         renderBadges(currentUserData);
         const newBadges = BADGE_DEFS.filter(b=>b.req(currentUserData) && !prevBadges.includes(b.id));
@@ -499,7 +500,12 @@
         const churchSnap = await getDoc(doc(db,"churches",myChurchId));
         if (churchSnap.exists() && churchSnap.data().active === false) {
           await signOut(auth);
-          window.location.href = "../index.html";
+          window.location.href = "../index.html?locked=paused";
+          return;
+        }
+        if (churchSnap.exists() && getSubscriptionState(churchSnap.data().subscriptionExpiresAt).state === "expired") {
+          await signOut(auth);
+          window.location.href = "../index.html?locked=expired";
           return;
         }
       } catch (err) {

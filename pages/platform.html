@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
   <title>Platform Dashboard — ChurchTrack</title>
-  <meta name="theme-color" content="#0A1628"/>
+  <meta name="theme-color" content="#1A1035"/>
 
   <link rel="icon" href="../favicon.ico" sizes="any"/>
   <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png"/>
@@ -12,7 +12,7 @@
   <link rel="manifest" href="../manifest.webmanifest"/>
 
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
   <link rel="stylesheet" href="../css/style.css"/>
 </head>
 <body class="dashboard-body">
@@ -39,6 +39,11 @@
       <div class="stat-card"><div class="stat-label">Churches</div><div class="stat-value" id="statTotal">—</div></div>
       <div class="stat-card"><div class="stat-label">Active</div><div class="stat-value" style="color:var(--green-light);" id="statActive">—</div></div>
       <div class="stat-card"><div class="stat-label">Paused</div><div class="stat-value" id="statPaused">—</div></div>
+    </div>
+
+    <div class="card reveal">
+      <div class="card-header"><div><div class="card-title">💳 Payment Requests <span id="pendingRequestCount" style="color:var(--gold);"></span></div><div class="card-title-sub">A church admin says they paid — verify it landed, then confirm here</div></div></div>
+      <div id="paymentRequestsList"><div class="empty-state">Loading…</div></div>
     </div>
 
     <div class="grid-2">
@@ -68,10 +73,12 @@
   <script type="module">
     import { auth, db } from "../js/firebase-config.js";
     import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-    import { doc, getDoc, setDoc, updateDoc, collection, getDocs, orderBy, query }
+    import { doc, getDoc, setDoc, updateDoc, addDoc, collection, getDocs, orderBy, query, where }
       from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
     import { icon, escapeHtml } from "../js/icons.js";
     import { showToast } from "../js/motion.js";
+    import { formatNaira, getSubscriptionState, addDaysISO, TRIAL_PERIOD_DAYS } from "../js/pricing-config.js";
+    import { sendUserEmail } from "../js/emailjs-config.js";
 
     let churches = [];
 
@@ -86,6 +93,7 @@
         return;
       }
       loadChurches();
+      loadPaymentRequests();
     });
 
     document.getElementById("logoutIconBtn").innerHTML = icon("logOut");
@@ -98,8 +106,21 @@
     };
     document.getElementById("newChurchSlug").addEventListener("input", (e) => { e.target.dataset.touched = "true"; });
 
+    // These are real paths this app already serves — a church slug matching
+    // one would either be unreachable (the real file always wins) or break
+    // that file for everyone. Kept in sync with FILE STRUCTURE in the README.
+    const RESERVED_SLUGS = new Set([
+      "index", "js", "css", "pages", "assets", "manifest.webmanifest",
+      "sw.js", "favicon.ico", "robots.txt"
+    ]);
+
     function registrationLink(slug) {
-      return new URL(`../index.html?c=${slug}`, window.location.href).href;
+      // Clean path, e.g. https://yourapp.com/champions-cathedral — no .html,
+      // no ?c= query string. Requires the rewrite rule in vercel.json (or
+      // the Netlify _redirects file) to actually be deployed; see the README
+      // "PRETTY SIGN-UP LINKS" section. index.html still understands the
+      // old ?c=slug format too, so links already sent out keep working.
+      return new URL(`../${slug}`, window.location.href).href;
     }
 
     window.createChurch = async () => {
@@ -111,12 +132,13 @@
       const slug = slugEl.value.trim().toLowerCase();
       if (!name || !slug) { errEl.textContent = "Enter a church name and workspace ID."; errEl.classList.remove("hidden"); return; }
       if (!/^[a-z0-9-]+$/.test(slug)) { errEl.textContent = "Workspace ID can only contain lowercase letters, numbers, and hyphens."; errEl.classList.remove("hidden"); return; }
+      if (RESERVED_SLUGS.has(slug)) { errEl.textContent = `"${slug}" is a reserved name and can't be used as a workspace ID — try something else.`; errEl.classList.remove("hidden"); return; }
       try {
         const existing = await getDoc(doc(db, "churches", slug));
         if (existing.exists()) { errEl.textContent = "That workspace ID is already taken — try another."; errEl.classList.remove("hidden"); return; }
-        await setDoc(doc(db, "churches", slug), { name, active: true, createdAt: new Date().toISOString() });
+        await setDoc(doc(db, "churches", slug), { name, active: true, createdAt: new Date().toISOString(), subscriptionExpiresAt: addDaysISO(null, TRIAL_PERIOD_DAYS) });
         nameEl.value = ""; slugEl.value = ""; slugEl.dataset.touched = "false";
-        showToast(`${name} is live. Copy its sign-up link below.`, "success", icon("check"));
+        showToast(`${name} is live with a ${TRIAL_PERIOD_DAYS}-day free trial. Copy its sign-up link below.`, "success", icon("check"));
         loadChurches();
       } catch (err) {
         errEl.textContent = `Couldn't create the church: ${err.message}`; errEl.classList.remove("hidden");
@@ -162,18 +184,108 @@
         const active = c.active !== false;
         const link = registrationLink(c.id);
         const created = c.createdAt ? new Date(c.createdAt).toLocaleDateString("en-NG", { day: "numeric", month: "short", year: "numeric" }) : "—";
+        const sub = getSubscriptionState(c.subscriptionExpiresAt);
+        const subLabel = { active: "Active", grace: "Grace Period", expired: "Expired", none: "No Subscription" }[sub.state];
+        const subBadgeClass = { active: "badge-present", grace: "badge-pending", expired: "badge-absent", none: "badge-flagged" }[sub.state];
+        const expiresText = c.subscriptionExpiresAt ? new Date(c.subscriptionExpiresAt).toLocaleDateString("en-NG",{day:"numeric",month:"short",year:"numeric"}) : "never set";
         return `<div style="padding:14px 0;border-bottom:1px solid rgba(255,255,255,0.05);display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
           <div style="min-width:0;">
-            <div style="font-weight:600;font-size:14px;">${escapeHtml(c.name)} <span class="badge ${active ? "badge-present" : "badge-absent"}" style="margin-left:6px;">${active ? "Active" : "Paused"}</span></div>
-            <div style="font-size:12px;color:var(--white-dim);margin-top:2px;">Created ${created} · ${escapeHtml(link)}</div>
+            <div style="font-weight:600;font-size:14px;">${escapeHtml(c.name)} <span class="badge ${active ? "badge-present" : "badge-absent"}" style="margin-left:6px;">${active ? "Active" : "Paused"}</span> <span class="badge ${subBadgeClass}">${subLabel}</span></div>
+            <div style="font-size:12px;color:var(--white-dim);margin-top:2px;">Created ${created} · Subscription expires ${expiresText} · ${escapeHtml(link)}</div>
           </div>
-          <div style="display:flex;gap:8px;flex-shrink:0;">
+          <div style="display:flex;gap:8px;flex-shrink:0;flex-wrap:wrap;">
             <button class="btn-secondary" style="padding:8px 12px;font-size:12px;" onclick="copyLink('${c.id}')">Copy Link</button>
+            <button class="btn-approve" style="padding:8px 12px;font-size:12px;" onclick="extendSubscription('${c.id}')">+1 Month</button>
             <button class="${active ? "btn-decline" : "btn-approve"}" style="padding:8px 12px;font-size:12px;" onclick="toggleChurchActive('${c.id}', ${!active})">${active ? "Pause" : "Resume"}</button>
           </div>
         </div>`;
       }).join("");
     }
+
+    window.extendSubscription = async (churchId) => {
+      try {
+        const church = churches.find(c => c.id === churchId);
+        const base = church && getSubscriptionState(church.subscriptionExpiresAt).state !== "expired" && church.subscriptionExpiresAt
+          ? church.subscriptionExpiresAt : null; // extend from current expiry if still current, otherwise from today
+        const newExpiry = addDaysISO(base, 30);
+        await updateDoc(doc(db, "churches", churchId), { subscriptionExpiresAt: newExpiry });
+        showToast(`Subscription extended to ${new Date(newExpiry).toLocaleDateString("en-NG",{day:"numeric",month:"short",year:"numeric"})}.`, "success", icon("check"));
+        loadChurches();
+      } catch (err) {
+        showToast(`Couldn't extend: ${err.message}`, "error", icon("alert"));
+      }
+    };
+
+    // ---------------------------------------------------------------
+    // PAYMENT REQUESTS — a church admin says they paid; you verify the
+    // money actually landed (bank app / Paystack dashboard) and confirm
+    // or reject here. Confirming is the ONLY thing that extends a
+    // church's subscription via this flow — enforced by Firestore rules,
+    // not just by this UI.
+    // ---------------------------------------------------------------
+    async function loadPaymentRequests() {
+      const el = document.getElementById("paymentRequestsList");
+      try {
+        const snap = await getDocs(query(collection(db,"paymentRequests"), where("status","==","pending")));
+        const requests = snap.docs.map(d=>({id:d.id, ...d.data()})).sort((a,b)=> (a.requestedAt||"").localeCompare(b.requestedAt||""));
+        document.getElementById("pendingRequestCount").textContent = requests.length ? `(${requests.length})` : "";
+        if (!requests.length) { el.innerHTML = `<div class="empty-state"><p>No pending payment requests.</p></div>`; return; }
+        el.innerHTML = requests.map(r => {
+          const when = r.requestedAt ? new Date(r.requestedAt).toLocaleString("en-NG",{day:"numeric",month:"short",year:"numeric",hour:"numeric",minute:"2-digit"}) : "—";
+          return `<div class="excuse-request">
+            <div class="excuse-req-body">
+              <div class="excuse-req-name">${escapeHtml(r.churchName||r.churchId)} — ${formatNaira(r.amountDue||0)}</div>
+              <div class="excuse-req-meeting">Requested ${when} by ${escapeHtml(r.requestedByName||"someone")}${r.memberCountAtRequest ? ` · ${r.memberCountAtRequest} members` : ""}</div>
+              ${r.reference ? `<div class="excuse-req-reason">${escapeHtml(r.reference)}</div>` : ""}
+              <div class="excuse-req-actions">
+                <button class="btn-approve" onclick="confirmPaymentRequest('${r.id}','${r.churchId}')">Confirm &amp; Extend 1 Month</button>
+                <button class="btn-decline" onclick="rejectPaymentRequest('${r.id}')">Reject</button>
+              </div>
+            </div>
+          </div>`;
+        }).join("");
+      } catch (err) {
+        el.innerHTML = `<div class="empty-state"><p>Couldn't load payment requests: ${escapeHtml(err.message)}</p></div>`;
+      }
+    }
+
+    window.confirmPaymentRequest = async (requestId, churchId) => {
+      try {
+        const church = churches.find(c => c.id === churchId) || (await getDoc(doc(db,"churches",churchId))).data();
+        const base = church && getSubscriptionState(church.subscriptionExpiresAt).state !== "expired" && church.subscriptionExpiresAt
+          ? church.subscriptionExpiresAt : null;
+        const newExpiry = addDaysISO(base, 30);
+        await updateDoc(doc(db, "churches", churchId), { subscriptionExpiresAt: newExpiry });
+        await updateDoc(doc(db, "paymentRequests", requestId), { status: "confirmed", confirmedAt: new Date().toISOString(), confirmedBy: auth.currentUser.uid });
+        showToast("Payment confirmed — subscription extended.", "success", icon("check"));
+
+        // Let the church's admins know it went through, best-effort (non-blocking)
+        try {
+          const adminSnap = await getDocs(query(collection(db,"users"), where("churchId","==",churchId), where("role","in",["superAdmin","admin"])));
+          const expiryText = new Date(newExpiry).toLocaleDateString("en-NG",{day:"numeric",month:"long",year:"numeric"});
+          adminSnap.docs.forEach(d => {
+            const a = d.data();
+            if (a.email) sendUserEmail(a.email, a.name, "Payment confirmed", `Your payment has been confirmed. Your church's subscription is now active through ${expiryText}.`);
+          });
+        } catch { /* non-blocking */ }
+
+        loadChurches();
+        loadPaymentRequests();
+      } catch (err) {
+        showToast(`Couldn't confirm: ${err.message}`, "error", icon("alert"));
+      }
+    };
+
+    window.rejectPaymentRequest = async (requestId) => {
+      const reason = prompt("Why are you rejecting this request? (shown to the church admin)") || "";
+      try {
+        await updateDoc(doc(db, "paymentRequests", requestId), { status: "rejected", rejectionReason: reason, confirmedAt: new Date().toISOString(), confirmedBy: auth.currentUser.uid });
+        showToast("Request rejected.", "info", icon("stopCircle"));
+        loadPaymentRequests();
+      } catch (err) {
+        showToast(`Couldn't reject: ${err.message}`, "error", icon("alert"));
+      }
+    };
   </script>
 </body>
 </html>

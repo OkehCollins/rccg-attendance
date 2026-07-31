@@ -70,7 +70,7 @@ function ensureCanvas() {
   window.addEventListener("resize", resize);
 }
 
-export function confettiBurst({ x, y, count = 60, colors = ["#C9A84C", "#E2C472", "#FF8A3D", "#4FC3F7", "#82E0AA"] } = {}) {
+export function confettiBurst({ x, y, count = 60, colors = ["#FF6B35", "#FFA24C", "#FF3D81", "#22D3EE", "#22C55E"] } = {}) {
   if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   ensureCanvas();
   const originX = x ?? window.innerWidth / 2;

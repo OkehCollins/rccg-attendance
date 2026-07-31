@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
   <title>Platform Setup — ChurchTrack</title>
-  <meta name="theme-color" content="#0A1628"/>
+  <meta name="theme-color" content="#1A1035"/>
   <meta name="robots" content="noindex,nofollow"/>
 
   <link rel="icon" href="../favicon.ico" sizes="any"/>
@@ -13,7 +13,7 @@
   <link rel="manifest" href="../manifest.webmanifest"/>
 
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
   <link rel="stylesheet" href="../css/style.css"/>
 </head>
 <body class="auth-page">
@@ -85,6 +85,7 @@
     import { createUserWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
     import { doc, getDoc, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
     import { icon } from "../js/icons.js";
+    import { sendUserEmail } from "../js/emailjs-config.js";
 
     // Whether the one-time bootstrap has already happened lives at
     // platformMeta/bootstrap. Firestore rules make this doc create-once,
@@ -164,6 +165,11 @@
         await batch.commit();
         succEl.textContent = "Platform Admin account created. Redirecting to your dashboard...";
         succEl.classList.remove("hidden");
+        sendUserEmail(
+          email, name,
+          "Your Platform Admin account is ready",
+          `Hi ${name},\n\nYour ChurchTrack Platform Admin account has been created. You can now sign in to create and manage church workspaces, confirm subscription payments, and onboard new churches.\n\nThis page is now permanently locked to further setup attempts, so keep your login safe — there's no self-serve way to create a second platform admin.`
+        );
         setTimeout(() => { window.location.href = "platform.html"; }, 1200);
       } catch (e) {
         // The Auth account exists but has no Firestore doc and no

@@ -65,9 +65,38 @@ role (not just `member`) via devtools was also closed — see Step 8.
 - A service worker makes the app installable and gives it basic offline
   support — bump `CACHE_VERSION` in `sw.js` whenever you update any file,
   or visitors keep seeing the old cached version. See "PWA & OFFLINE SUPPORT".
-- Admin gets an email (via EmailJS, no backend/Blaze needed) the moment a
-  member submits an excuse, or the moment someone crosses 2 missed
-  meetings — plus the same two events as live in-app toasts. See "NOTIFICATIONS".
+
+### New: full visual redesign
+Every page now runs on a bold, vivid, contemporary palette (deep violet
+background, flame-orange/hot-pink primary, Sora + Inter typography)
+instead of the old navy-and-gold cathedral look — see `css/style.css`'s
+`:root` block for every color token in one place. Variable *names* didn't
+change, only their values, so this was a values-only edit: no markup
+rewrites, no risk of breaking a page that references `var(--gold)`.
+
+### New: subscriptions & billing
+Churches now pay a monthly, per-member subscription with a 14-day grace
+period and a 7-day-out reminder, paid via a payment link/bank transfer and
+manually confirmed by the platform admin — no backend, no payment
+webhook. Church admins see their status and pay right from the
+Subscription tab; you confirm payments from a new panel on the Platform
+Dashboard. See "SUBSCRIPTIONS & BILLING" below, and Step 7 for the two
+new config files.
+
+### New: pretty per-church sign-up links
+Copy Link now gives `yourapp.com/church-slug` instead of
+`yourapp.com/index.html?c=church-slug` — no file extension, no query
+string, so a member just taps the link straight into their church's
+sign-up. Old-style links already sent out keep working. See "PRETTY
+SIGN-UP LINKS" below.
+
+### New: more email notifications
+Beyond the existing excuse/missed-meeting alerts, the app now emails a
+welcome message on registration, a notice when someone's promoted to
+admin, a payment-confirmation email, and a platform-admin setup
+confirmation — each sent to the actual person it's about, not just to
+your own inbox. Needs a second EmailJS template (Step 5) since this is
+the first place the app emails someone other than you.
 
 ---
 
@@ -111,25 +140,42 @@ You'll paste both values into `js/cloudinary-config.js` in Step 7 below.
 
 ---
 
-## STEP 5: Create Your EmailJS Account (for admin notifications)
+## STEP 5: Create Your EmailJS Account (for admin notifications + user emails)
 
-This sends you an email when a member submits an excuse, or when someone
-crosses 2 missed meetings — free, no backend, no card required.
+This powers two different kinds of email, both free, no backend, no card
+required:
+- **Admin alerts** to one fixed inbox (you): a member submits an excuse,
+  someone crosses 2 missed meetings, or a church admin submits a payment
+  request.
+- **User emails** to whoever the email is actually about: a welcome email
+  on registration, "you've been made an admin," "your payment was
+  confirmed," and the platform admin's own setup confirmation.
+
+That means you need **two templates** in the same EmailJS account.
 
 1. Go to https://emailjs.com → sign up (free plan, 200 emails/month)
 2. **"Email Services"** → **"Add New Service"** → connect the inbox you
    want alerts to land in (Gmail, Outlook, etc.) → copy the **Service ID**
-3. **"Email Templates"** → **"Create New Template"**
-4. Set the **"To email"** field to your own admin email address directly
-   (not a variable — this app always sends to one fixed inbox)
-5. In the template body, use exactly these two variables and nothing else
-   — the actual wording is built in code, this template just displays it:
-   - Subject: `{{subject}}`
-   - Content: `{{message}}`
-6. Save → copy the **Template ID**
-7. **"Account"** → **"General"** → copy your **Public Key**
+   (both templates below share this one service)
+3. **Template 1 — Admin Alerts.** **"Email Templates"** → **"Create New
+   Template"**.
+   - Set the **"To email"** field to your own admin email address directly
+     (not a variable — this one always sends to one fixed inbox)
+   - Body, exactly these two variables and nothing else:
+     - Subject: `{{subject}}`
+     - Content: `{{message}}`
+   - Save → copy the **Template ID**
+4. **Template 2 — User Emails.** Create a second template the same way,
+   except:
+   - Set **"To email"** to the variable `{{to_email}}`, and **"To name"**
+     to `{{to_name}}` — this is what lets one template email a different
+     person every time instead of always landing in your own inbox
+   - Same passthrough body: `{{subject}}` / `{{message}}`
+   - Save → copy this **Template ID** too (you'll have two now)
+5. **"Account"** → **"General"** → copy your **Public Key**
 
-You'll paste all three values into `js/emailjs-config.js` in Step 7 below.
+You'll paste the Service ID, Public Key, and both Template IDs into
+`js/emailjs-config.js` in Step 7 below.
 
 ---
 
@@ -142,7 +188,7 @@ You'll paste all three values into `js/emailjs-config.js` in Step 7 below.
 
 ---
 
-## STEP 7: Paste Your Config (THREE files now, a fourth in Step 9)
+## STEP 7: Paste Your Config (five files now, a sixth in Step 9)
 
 **Firebase config** lives in `js/firebase-config.js` — open it and replace
 the object under `// PASTE YOUR FIREBASE CONFIG HERE`.
@@ -154,10 +200,22 @@ replace `YOUR_CLOUD_NAME` and `YOUR_UNSIGNED_PRESET` with the values from
 Step 4. Both dashboards import from this one file too.
 
 **EmailJS config** lives in `js/emailjs-config.js` — open it and replace
-`YOUR_PUBLIC_KEY`, `YOUR_SERVICE_ID`, and `YOUR_TEMPLATE_ID` with the
-values from Step 5. Both dashboards import from this one file too. If you
-skip this step, the app still works fine — it just quietly skips sending
-the email (logged to the browser console) and nothing breaks.
+`YOUR_PUBLIC_KEY`, `YOUR_SERVICE_ID`, `YOUR_TEMPLATE_ID`, and
+`YOUR_USER_TEMPLATE_ID` with the values from Step 5. If you skip this
+step, the app still works fine — it just quietly skips sending the email
+(logged to the browser console) and nothing breaks.
+
+**Payment config** lives in `js/payment-config.js` — open it and fill in
+`PAYMENT_LINK` (a Paystack/Flutterwave payment page, optional),
+`BANK_TRANSFER_DETAILS`, and `PAYMENT_CONTACT`. This is what church admins
+see on the Subscription tab when they go to pay. Leave it blank and the
+tab still works, it just won't have a way to actually pay you.
+
+**Pricing config** lives in `js/pricing-config.js` — the defaults are
+₦25/member/month with a ₦20,000 minimum and a 14-day grace period; edit
+the constants at the top of the file to change any of that. Nothing else
+in the app needs to change — every page that shows a price or checks
+subscription status imports from this one file.
 
 ---
 
@@ -294,6 +352,33 @@ service cloud.firestore {
       allow read: if isPlatformAdmin() || (sameChurch(resource.data) && (resource.data.userId == request.auth.uid || isAdmin()));
       allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid && request.resource.data.churchId == myChurchId();
     }
+
+    // Billing. A church's own super admin can only ever CREATE a pending
+    // request — never confirm one, never touch its status after the fact,
+    // and never write subscriptionExpiresAt directly (that field lives on
+    // the churches doc above, which only isPlatformAdmin() can write at
+    // all). This is what makes "manually confirm & activate" actually
+    // secure with no backend: a church admin can claim they paid, but only
+    // the platform admin's confirm click in platform.html can ever extend
+    // their access.
+    match /paymentRequests/{id} {
+      allow read: if isPlatformAdmin() || (isSuperAdmin() && resource.data.churchId == myChurchId());
+      allow create: if isSuperAdmin()
+        && request.resource.data.churchId == myChurchId()
+        && request.resource.data.status == "pending";
+      allow update: if isPlatformAdmin();
+      allow delete: if false;
+    }
+
+    // One doc per church, tracking whether the "renews soon" reminder email
+    // has already gone out for the current billing period — a super admin
+    // can only ever mark their own church's reminder as sent, never touch
+    // any other church's, and (same as everywhere else) can't write
+    // subscriptionExpiresAt itself through this or any other collection.
+    match /billingReminders/{churchId} {
+      allow read: if isPlatformAdmin() || (isSuperAdmin() && churchId == myChurchId());
+      allow write: if isSuperAdmin() && churchId == myChurchId();
+    }
   }
 }
 ```
@@ -386,6 +471,45 @@ an existing single-church account into this church workspace (see
 2. Upload the rccg-attendance folder to a GitHub repository
 3. In Vercel → New Project → import your repo → Deploy
 4. You get a free URL like rccg-media.vercel.app
+5. Nothing else to configure — `vercel.json` (already in this folder) makes
+   every church's sign-up link clean automatically, e.g.
+   `rccg-media.vercel.app/champions-cathedral` instead of
+   `rccg-media.vercel.app/index.html?c=champions-cathedral`. See "PRETTY
+   SIGN-UP LINKS" below.
+
+---
+
+## PRETTY SIGN-UP LINKS
+
+Copy Link on the Platform Dashboard now gives you
+`yourapp.com/church-slug` — no `.html`, no `?c=` — so members just tap the
+link and land straight in their church's registration/sign-in, nothing to
+search for. Old-style `yourapp.com/index.html?c=church-slug` links you've
+already sent out keep working forever; `index.html` checks the pretty
+path first and falls back to the old `?c=` format automatically.
+
+**How it works:** `vercel.json` (or `_redirects`, if you're on Netlify
+instead) tells the host "if nobody at this exact path, just quietly serve
+`index.html` instead, without changing the URL the visitor sees." Real
+files always win first — `/pages/admin.html`, `/css/style.css`, etc. keep
+working exactly as before — so this only ever kicks in for an actual
+church slug. `index.html` then reads that slug straight from the URL
+path (`window.location.pathname`) instead of a query string.
+
+**One thing to watch:** a church's workspace ID (the "slug" you type or
+auto-generate on the Platform Dashboard) can't be `js`, `css`, `pages`,
+`assets`, `index`, `manifest.webmanifest`, `sw.js`, `favicon.ico`, or
+`robots.txt` — those are real paths this app already uses, and the app
+blocks you from creating a church with any of those names. Everything
+else is fair game.
+
+**If you're not on Vercel or Netlify:** whatever host you use needs an
+equivalent "serve index.html for any path that isn't a real file"
+rule — that's a standard feature on basically every static host (GitHub
+Pages needs a small workaround via a custom 404.html; Cloudflare Pages
+and Firebase Hosting both have a one-line config for it). Until you set
+that up, sign-up links just fall back to the old `?c=` query-string
+format automatically — nothing breaks, they're just less pretty.
 
 ---
 
@@ -396,13 +520,17 @@ rccg-attendance/
 ├── index.html              ← Login / Registration / Forgot Password
 ├── manifest.webmanifest    ← App icons (favicon / home-screen icon)
 ├── sw.js                   ← Service worker (offline support + installability)
+├── vercel.json             ← Makes church sign-up links clean (see PRETTY SIGN-UP LINKS)
+├── _redirects              ← Same thing, for Netlify instead of Vercel
 ├── favicon.ico
 ├── css/
 │   └── style.css           ← All styling + motion system
 ├── js/
 │   ├── firebase-config.js   ← Firebase config lives here ONLY
 │   ├── cloudinary-config.js ← Cloudinary config + upload helper (profile photos)
-│   ├── emailjs-config.js    ← EmailJS config + send helper (admin notifications)
+│   ├── emailjs-config.js    ← EmailJS config + send helpers (admin alerts + user emails)
+│   ├── pricing-config.js    ← Subscription pricing + billing-state helpers
+│   ├── payment-config.js    ← Payment link / bank details shown on the Subscription tab
 │   ├── platform-setup-config.js ← Your private one-time platform-setup phrase (see Step 9)
 │   ├── icons.js              ← Shared icon set
 │   ├── motion.js             ← Reveal animations, confetti, toast, image resize helper
@@ -518,32 +646,45 @@ the same practical result for free.
 
 ## NOTIFICATIONS
 
-Three things happen automatically, all without any backend or Blaze plan:
+Four things happen automatically, all without any backend or Blaze plan:
 
-1. **Email to EmailJS's configured inbox** (Step 5) when:
+1. **Admin alert email**, to one fixed inbox (Step 5, Template 1), when:
    - A member submits an excuse request
    - A member crosses 2 missed meetings for the first time (not again on
      the 3rd, 4th miss, etc. — you're already tracking them by then)
+   - A church admin submits a payment request on the Subscription tab
 
-   Both of these fire regardless of department — EmailJS is configured
-   once, church-wide, so every excuse and every newly-flagged member reaches
-   that one inbox. There's no per-department email routing built here; if
-   you want department admins emailed only about their own department,
-   that's a further change, not something this version does.
-2. **Live in-app alerts** on the admin dashboard — a toast pops up and the
-   Overview tab's numbers update the instant either of those happens, as
-   long as the dashboard is open in a browser tab somewhere. These *are*
+   These fire regardless of department — EmailJS is configured once,
+   church-wide, so every excuse, newly-flagged member, and payment request
+   reaches that one inbox. There's no per-department or per-church email
+   routing built here; if you want department admins emailed only about
+   their own department, that's a further change, not something this
+   version does.
+2. **User email**, to the specific person it's about (Step 5, Template 2),
+   when:
+   - Someone completes registration (welcome email)
+   - A super admin promotes someone to Department Admin or Super Admin
+     ("you've been made an admin")
+   - The platform admin confirms a payment request (subscription renewed)
+   - The one-time platform admin bootstrap completes (Step 9)
+   - A subscription is 7 days (configurable) from expiring — sent once per
+     billing period to whichever super admin's browser first opens the
+     dashboard inside that window
+3. **Live in-app alerts** on the admin dashboard — a toast pops up and the
+   Overview tab's numbers update the instant either of the first two fire,
+   as long as the dashboard is open in a browser tab somewhere. These *are*
    correctly scoped by the security rules — a department admin's toast
    feed only ever includes their own department; a super admin sees
    everything. No reload needed either way.
-3. **Announcements** — not automatic, but the closest thing to a
+4. **Announcements** — not automatic, but the closest thing to a
    "broadcast": an admin posts once, and it shows up live on every
    relevant member's dashboard (Announcements tab, in admin.html).
 
 **The honest limitation:** all of these only fire because they're
 triggered by someone's browser already being open and doing something
-(a member submitting an excuse, an admin ending a meeting or posting an
-announcement). Nothing runs in the background on a server. That means:
+(a member registering, an admin promoting someone, ending a meeting, or
+posting an announcement). Nothing runs in the background on a server.
+That means:
 - ✅ "Email me when X happens" → covered, exactly as built
 - ❌ "Email me every Monday with a weekly summary, whether or not anyone
   opened the app that day" → would need a scheduled server job, which
@@ -553,6 +694,67 @@ If EmailJS isn't configured yet (`js/emailjs-config.js` still has the
 placeholder values), emails are silently skipped — logged to the browser
 console, nothing else breaks. The in-app toasts and announcements work
 either way.
+
+---
+
+## SUBSCRIPTIONS & BILLING
+
+Every church pays a monthly subscription, priced per member. There is
+**no automatic payment verification** — no Stripe/Paystack webhook, no
+Cloud Function watching for a transaction. That's a deliberate choice to
+keep the app on Firebase's free plan, not an oversight, but it means the
+platform admin (you) is the one thing standing between "I paid" and a
+subscription actually renewing.
+
+**How it works, end to end:**
+1. Pricing is `max(₦20,000, memberCount × ₦25)` per month — every account
+   in a church (member, department admin, super admin) counts toward
+   `memberCount`. Edit `js/pricing-config.js` to change any of these
+   numbers.
+2. A new church gets a 30-day free trial automatically when you create it
+   in the Platform Dashboard — `subscriptionExpiresAt` is set 30 days out
+   from creation, no payment needed up front.
+3. On the Subscription tab of their Admin Dashboard, a church's super
+   admin sees their current status, expiry date, live member count, and
+   this month's fee. They pay you via whatever's in
+   `js/payment-config.js` (a Paystack/Flutterwave link and/or bank
+   details), then click **"I've Paid"**, which just creates a pending
+   request and emails you — it does **not** touch their subscription.
+4. You check that the money actually landed (your bank app, Paystack
+   dashboard, whatever), then confirm or reject it from the **Payment
+   Requests** panel on the Platform Dashboard. Confirming is what extends
+   `subscriptionExpiresAt` by 30 days and emails the church back. You can
+   also just click **"+1 Month"** on any church directly, for payments
+   that never went through the request flow at all (cash, a bank transfer
+   you noticed on your own).
+5. If a subscription lapses, the church gets a **14-day grace period** —
+   full access continues, but every admin sees a warning banner urging
+   them to renew. After 14 days, access locks for the whole church (every
+   role, including members) exactly like the existing manual Pause
+   feature, and stays locked until the next confirmed payment.
+6. **7 days before that even happens**, a super admin who opens their
+   dashboard sees a softer "renews in N days" banner and gets a one-time
+   reminder email — same "only fires if someone's browser is open"
+   limitation as every other email in this app (see NOTIFICATIONS), but
+   it dedupes correctly: opening the dashboard five times in that window
+   sends exactly one email, not five. Change `REMINDER_DAYS_BEFORE_EXPIRY`
+   in `js/pricing-config.js` to move that window earlier or later.
+
+**Security note:** a church's own super admin can never write
+`subscriptionExpiresAt` themselves — the `churches` collection's write
+rule restricts the *entire document* to `isPlatformAdmin()`, and that
+rule already existed for the Pause feature before billing was added. The
+new `paymentRequests` collection rules (Step 8) only let a super admin
+create a `status: "pending"` request under their own church — never
+confirm one, never edit it afterward. Only you, clicking Confirm in the
+Platform Dashboard, can ever move a subscription forward.
+
+**What this doesn't do:** there's no invoicing, no automatic reminders
+before a subscription lapses (the grace-period banner only appears once
+it already has), and no refunds/proration logic. For a platform this
+size, "the platform admin looks at a dashboard once in a while" is a
+reasonable amount of billing automation — revisit if the number of
+churches grows enough that manual confirmation becomes the bottleneck.
 
 ---
 

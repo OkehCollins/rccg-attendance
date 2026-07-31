@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
   <title>Admin Dashboard — Champions Cathedral</title>
-  <meta name="theme-color" content="#0A1628"/>
+  <meta name="theme-color" content="#1A1035"/>
 
   <link rel="icon" href="../favicon.ico" sizes="any"/>
   <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png"/>
@@ -12,7 +12,7 @@
   <link rel="manifest" href="../manifest.webmanifest"/>
 
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
   <link rel="stylesheet" href="../css/style.css"/>
 </head>
 <body class="dashboard-body">
@@ -53,6 +53,16 @@
       <button class="tab" onclick="switchTab('leaderboard')" data-tab="leaderboard">Leaderboard</button>
       <button class="tab" onclick="switchTab('announcements')" data-tab="announcements">Announcements</button>
       <button class="tab hidden" onclick="switchTab('departments')" data-tab="departments" id="departmentsTabBtn">Departments</button>
+      <button class="tab" onclick="switchTab('subscription')" data-tab="subscription">Subscription</button>
+    </div>
+
+    <!-- Shown church-wide whenever billing needs attention; visible on every tab -->
+    <div class="card reveal hidden" id="subBanner" style="border-color:rgba(251,191,36,0.4);background:rgba(251,191,36,0.08);padding:16px 20px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <span style="font-size:22px;">⚠️</span>
+        <div><strong id="subBannerTitle" style="font-size:14px;">Subscription notice</strong><div id="subBannerText" style="font-size:13px;color:var(--white-dim);margin-top:2px;"></div></div>
+      </div>
+      <button class="btn-secondary" style="width:auto;padding:9px 18px;font-size:13px;" onclick="switchTab('subscription')">View Subscription</button>
     </div>
 
     <!-- OVERVIEW -->
@@ -169,7 +179,7 @@
 
     <!-- DEPARTMENTS (super admin only) -->
     <div id="tab-departments" class="hidden">
-      <div class="card reveal" style="border-color:rgba(201,168,76,0.3);">
+      <div class="card reveal" style="border-color:rgba(255,107,53,0.3);">
         <div class="card-header"><div><div class="card-title">⚙️ One-Time Account Migration</div><div class="card-title-sub">Only needed once — fixes accounts created before departments existed</div></div></div>
         <p style="font-size:13px;color:var(--white-dim);margin-bottom:14px;">Accounts registered before this update have no department set at all, so they won't show up in any department view — not even "General Congregation" — until this runs once. Old media team "role" text is carried over as their position automatically. Safe to run more than once; it only touches accounts still missing a department.</p>
         <button class="btn-secondary" onclick="runMigration()"><span id="migrateBtnText">Fix Old Accounts</span></button>
@@ -187,6 +197,24 @@
           <div class="card-header"><div><div class="card-title">All Departments</div><div class="card-title-sub">Tap a member's Edit button in the Members tab to make them a department admin</div></div></div>
           <div id="departmentsList"><div class="empty-state">Loading…</div></div>
         </div>
+      </div>
+    </div>
+
+    <!-- SUBSCRIPTION -->
+    <div id="tab-subscription" class="hidden">
+      <div class="card reveal">
+        <div class="card-header">
+          <div><div class="card-title">💳 Subscription Status</div><div class="card-title-sub" id="subPricingBlurb">Billed monthly</div></div>
+        </div>
+        <div id="subStatusBody"><div class="skeleton skel-line" style="width:70%"></div></div>
+      </div>
+      <div class="card reveal" id="subRenewCard">
+        <div class="card-header"><div><div class="card-title">Renew / Pay</div><div class="card-title-sub">No automatic billing — pay, then tell us so we can confirm it</div></div></div>
+        <div id="subRenewBody"></div>
+      </div>
+      <div class="card reveal">
+        <div class="card-header"><div><div class="card-title">Payment History</div></div></div>
+        <div id="subHistoryBody"><div class="empty-state">Loading…</div></div>
       </div>
     </div>
   </main>
@@ -231,15 +259,18 @@
     import { doc, getDoc, setDoc, getDocs, collection, query, where, addDoc, updateDoc, deleteDoc, onSnapshot, Timestamp, serverTimestamp }
       from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
     import { uploadToCloudinary } from "../js/cloudinary-config.js";
-    import { sendEmailAlert } from "../js/emailjs-config.js";
+    import { sendEmailAlert, sendUserEmail } from "../js/emailjs-config.js";
     import { icon, escapeHtml } from "../js/icons.js";
     import { initReveal, staggerIn, showToast, imageToSquareBlob, openModal, closeModal } from "../js/motion.js";
     import { todayKey } from "../js/devotionals.js";
+    import { PRICE_PER_MEMBER, MINIMUM_MONTHLY_FEE, GRACE_PERIOD_DAYS, REMINDER_DAYS_BEFORE_EXPIRY, calculateMonthlyFee, formatNaira, getSubscriptionState, isInReminderWindow } from "../js/pricing-config.js";
+    import { PAYMENT_LINK, BANK_TRANSFER_DETAILS, PAYMENT_CONTACT } from "../js/payment-config.js";
 
     // "admin" is the old, pre-department role — treated exactly like superAdmin
     // so an account that existed before this update doesn't get locked out.
     let myRole = null;        // 'superAdmin' | 'departmentAdmin'
     let myChurchId = null;
+    let myChurchData = null;
     let myDept = null;        // department id, only meaningful for departmentAdmin
     let myDeptName = null;
     let allDepartments = [];  // [{id, name}]
@@ -320,7 +351,7 @@
     }
 
     window.switchTab=(tab)=>{
-      const tabs=["overview","meetings","members","excuses","leaderboard","announcements","departments"];
+      const tabs=["overview","meetings","members","excuses","leaderboard","announcements","departments","subscription"];
       document.querySelectorAll(".tab").forEach((t)=>{t.classList.toggle("active", t.dataset.tab===tab);});
       tabs.forEach(id=>{
         const el=document.getElementById(`tab-${id}`);
@@ -334,6 +365,7 @@
       if(tab==="meetings")loadMeetings();
       if(tab==="announcements")loadAnnouncements();
       if(tab==="departments")loadDepartmentsTab();
+      if(tab==="subscription")loadSubscriptionTab();
     };
 
     async function loadDevotionalOverview(){
@@ -605,15 +637,18 @@
       if (!editMemberTargetUid) return;
       const errEl = document.getElementById("editMemberError");
       errEl.classList.add("hidden");
+      const target = allMembers.find(m=>m.id===editMemberTargetUid);
+      const previousRole = target ? ((target.role==="admin") ? "superAdmin" : (target.role || "member")) : "member";
       const updates = {
         isWorker: document.getElementById("emIsWorker").checked,
         position: document.getElementById("emPosition").value.trim()
       };
+      let newRole = previousRole;
       if (myRole === "superAdmin") {
         const dept = document.getElementById("emDepartment").value;
         updates.department = dept;
         updates.departmentName = departmentName(dept);
-        const newRole = document.getElementById("emRole").value;
+        newRole = document.getElementById("emRole").value;
         updates.role = newRole;
         if (newRole === "departmentAdmin" && dept === "general") {
           errEl.textContent = "A department admin needs a real department selected, not General Congregation.";
@@ -624,6 +659,16 @@
       try {
         await updateDoc(doc(db,"users",editMemberTargetUid), updates);
         showToast("Member updated.", "success", icon("check"));
+        // Only email on a genuine promotion — not every edit, and not a demotion.
+        const gotPromoted = (newRole === "departmentAdmin" || newRole === "superAdmin") && newRole !== previousRole;
+        if (gotPromoted && target && target.email) {
+          const roleLabel = newRole === "superAdmin" ? "Super Admin" : `${updates.departmentName || departmentName(updates.department)} Admin`;
+          sendUserEmail(
+            target.email, target.name,
+            "You've been made an admin",
+            `Hi ${target.name},\n\nYou've been given ${roleLabel} access on ${(myChurchData && myChurchData.name) || "your church"}'s dashboard. Sign in again and you'll see the Admin Dashboard instead of the regular member view.`
+          );
+        }
         closeEditMemberModal();
         loadMembers();
       } catch (err) {
@@ -789,6 +834,171 @@
       loadDepartmentsTab();
     };
 
+    // ---------------------------------------------------------------
+    // SUBSCRIPTION / BILLING
+    // No backend, so nothing here can auto-activate a subscription.
+    // A super admin submits a payment request; only the platform admin
+    // confirming it (in platform.html) ever writes subscriptionExpiresAt —
+    // enforced by the churches collection's write rule, not by this code.
+    // ---------------------------------------------------------------
+    async function getLiveMemberCount() {
+      const snap = await getDocs(query(collection(db,"users"), where("churchId","==",myChurchId)));
+      return snap.size; // every account on the roster, any role — see README
+    }
+
+    async function updateSubscriptionBanner() {
+      const banner = document.getElementById("subBanner");
+      if (!myChurchData) { banner.classList.add("hidden"); return; }
+      const expiresAt = myChurchData.subscriptionExpiresAt;
+      const { state, daysLeft } = getSubscriptionState(expiresAt);
+
+      if (state === "grace") {
+        banner.style.borderColor = "rgba(251,191,36,0.4)";
+        banner.style.background = "rgba(251,191,36,0.08)";
+        document.getElementById("subBannerTitle").textContent = `Subscription expired — ${daysLeft} day${daysLeft===1?"":"s"} left before lockout`;
+        document.getElementById("subBannerText").textContent = myRole === "superAdmin"
+          ? "Renew now to avoid losing access for the whole church."
+          : "Your Super Admin needs to renew this to avoid losing access.";
+        banner.classList.remove("hidden");
+      } else if (state === "none") {
+        banner.style.borderColor = "rgba(251,191,36,0.4)";
+        banner.style.background = "rgba(251,191,36,0.08)";
+        document.getElementById("subBannerTitle").textContent = "No subscription on file";
+        document.getElementById("subBannerText").textContent = "Contact the platform team to get this church set up for billing.";
+        banner.classList.remove("hidden");
+      } else if (isInReminderWindow(expiresAt)) {
+        banner.style.borderColor = "rgba(34,211,238,0.4)";
+        banner.style.background = "rgba(34,211,238,0.08)";
+        document.getElementById("subBannerTitle").textContent = `Subscription renews in ${daysLeft} day${daysLeft===1?"":"s"}`;
+        document.getElementById("subBannerText").textContent = myRole === "superAdmin"
+          ? "Pay early any time from the Subscription tab — no rush yet."
+          : "Your Super Admin will need to renew this soon.";
+        banner.classList.remove("hidden");
+        if (myRole === "superAdmin") sendReminderEmailIfDue(expiresAt);
+      } else {
+        banner.classList.add("hidden");
+      }
+    }
+
+    // Sends at most one reminder email per billing period. Dedup is tracked
+    // in billingReminders/{myChurchId} (its own collection, not a field on
+    // the churches doc — a super admin isn't allowed to write to churches
+    // at all, so this keeps that boundary intact while still letting them
+    // mark "I've been reminded for this period" from their own browser).
+    async function sendReminderEmailIfDue(expiresAt) {
+      try {
+        const ref = doc(db, "billingReminders", myChurchId);
+        const snap = await getDoc(ref);
+        if (snap.exists() && snap.data().lastReminderPeriod === expiresAt) return; // already sent for this period
+        await setDoc(ref, { lastReminderPeriod: expiresAt, lastReminderSentAt: new Date().toISOString() });
+        const expiryText = new Date(expiresAt).toLocaleDateString("en-NG", { day:"numeric", month:"long", year:"numeric" });
+        sendUserEmail(
+          auth.currentUser.email, document.getElementById("navName").textContent,
+          "Your subscription renews soon",
+          `Hi,\n\n${myChurchData.name || "Your church"}'s subscription renews on ${expiryText}. You can pay any time before then from the Subscription tab of your Admin Dashboard — no need to wait until the last minute.`
+        );
+      } catch (err) {
+        console.warn("Reminder email check failed (non-blocking):", err);
+      }
+    }
+
+    window.loadSubscriptionTab = async () => {
+      document.getElementById("subPricingBlurb").textContent =
+        `${formatNaira(PRICE_PER_MEMBER)}/member/month, ${formatNaira(MINIMUM_MONTHLY_FEE)} minimum — billed monthly, ${GRACE_PERIOD_DAYS}-day grace period if it lapses`;
+
+      const statusBody = document.getElementById("subStatusBody");
+      const renewCard = document.getElementById("subRenewCard");
+      const renewBody = document.getElementById("subRenewBody");
+      const historyBody = document.getElementById("subHistoryBody");
+
+      let memberCount = 0;
+      try { memberCount = await getLiveMemberCount(); } catch { /* fee preview just shows 0 if this fails */ }
+      const fee = calculateMonthlyFee(memberCount);
+      const { state, daysLeft } = getSubscriptionState(myChurchData && myChurchData.subscriptionExpiresAt);
+
+      const stateLabel = { active: "Active", grace: "Grace Period", expired: "Expired", none: "Not Set Up" }[state];
+      const stateColor = { active: "var(--green-light)", grace: "var(--amber)", expired: "var(--red)", none: "var(--white-dim)" }[state];
+      const expiresText = myChurchData && myChurchData.subscriptionExpiresAt
+        ? new Date(myChurchData.subscriptionExpiresAt).toLocaleDateString("en-NG", { year:"numeric", month:"long", day:"numeric" })
+        : "—";
+
+      statusBody.innerHTML = `
+        <div class="stats-row" style="margin-bottom:0;">
+          <div class="stat-card"><div class="stat-label">Status</div><div class="stat-value" style="color:${stateColor};font-size:20px;">${stateLabel}</div>
+            ${state==="active"||state==="grace" ? `<div class="stat-badge">${daysLeft} day${daysLeft===1?"":"s"} ${state==="grace"?"until lockout":"left"}</div>` : ""}
+          </div>
+          <div class="stat-card"><div class="stat-label">Renews / Expires</div><div class="stat-value" style="font-size:18px;">${expiresText}</div></div>
+          <div class="stat-card"><div class="stat-label">Members Billed</div><div class="stat-value">${memberCount}</div><div class="stat-badge">Every account on the roster</div></div>
+          <div class="stat-card"><div class="stat-label">This Month's Fee</div><div class="stat-value gold">${formatNaira(fee)}</div>
+            <div class="stat-badge">${memberCount} × ${formatNaira(PRICE_PER_MEMBER)} ${memberCount*PRICE_PER_MEMBER > MINIMUM_MONTHLY_FEE ? "" : `(below ${formatNaira(MINIMUM_MONTHLY_FEE)} minimum)`}</div>
+          </div>
+        </div>`;
+
+      if (myRole !== "superAdmin") {
+        renewCard.classList.add("hidden");
+      } else {
+        renewCard.classList.remove("hidden");
+        const payLinkHtml = PAYMENT_LINK
+          ? `<a href="${PAYMENT_LINK}" target="_blank" rel="noopener" class="btn-primary" style="text-decoration:none;margin-bottom:14px;"><span>Pay ${formatNaira(fee)} Now</span></a>`
+          : "";
+        renewBody.innerHTML = `
+          <p style="font-size:13px;color:var(--white-dim);margin-bottom:14px;">Pay ${formatNaira(fee)} for the next month using the link and/or bank details below, then tell us so we can confirm it and extend your access.</p>
+          ${payLinkHtml}
+          <pre style="background:rgba(255,255,255,0.04);border-radius:8px;padding:14px;font-size:13px;white-space:pre-wrap;margin-bottom:14px;">${escapeHtml(BANK_TRANSFER_DETAILS)}</pre>
+          ${PAYMENT_CONTACT ? `<p style="font-size:12px;color:var(--white-dim);margin-bottom:14px;">Trouble paying? Reach us at ${escapeHtml(PAYMENT_CONTACT)}.</p>` : ""}
+          <div class="form-group"><label>Reference / note (optional)</label><input type="text" id="subPayRef" placeholder="e.g. transaction ID, or who you spoke to"/></div>
+          <button class="btn-secondary" id="subPayBtn" onclick="submitPaymentRequest(${fee}, ${memberCount})"><span>I've Paid — Notify Us</span></button>
+        `;
+      }
+
+      try {
+        const snap = await getDocs(query(collection(db,"paymentRequests"), where("churchId","==",myChurchId)));
+        const requests = snap.docs.map(d=>({id:d.id, ...d.data()})).sort((a,b)=> (b.requestedAt||"").localeCompare(a.requestedAt||""));
+        historyBody.innerHTML = requests.length ? requests.map(r => {
+          const statusColor = { pending:"var(--amber)", confirmed:"var(--green-light)", rejected:"var(--red)" }[r.status] || "var(--white-dim)";
+          const when = r.requestedAt ? new Date(r.requestedAt).toLocaleDateString("en-NG",{year:"numeric",month:"short",day:"numeric"}) : "—";
+          return `<div class="excuse-request">
+            <div class="excuse-req-body">
+              <div class="excuse-req-name">${formatNaira(r.amountDue||0)} <span style="color:${statusColor};font-weight:700;text-transform:uppercase;font-size:11px;letter-spacing:.05em;">${r.status}</span></div>
+              <div class="excuse-req-meeting">Requested ${when}${r.memberCountAtRequest ? ` · ${r.memberCountAtRequest} members` : ""}</div>
+              ${r.reference ? `<div class="excuse-req-reason">${escapeHtml(r.reference)}</div>` : ""}
+              ${r.status==="rejected" && r.rejectionReason ? `<div class="excuse-req-reason" style="color:#F1948A;">Reason: ${escapeHtml(r.rejectionReason)}</div>` : ""}
+            </div>
+          </div>`;
+        }).join("") : `<div class="empty-state"><p>No payment requests yet.</p></div>`;
+      } catch (err) {
+        historyBody.innerHTML = `<div class="empty-state"><p>Couldn't load payment history: ${err.message}</p></div>`;
+      }
+    };
+
+    window.submitPaymentRequest = async (amountDue, memberCountAtRequest) => {
+      const btn = document.getElementById("subPayBtn");
+      const reference = document.getElementById("subPayRef").value.trim();
+      btn.disabled = true;
+      try {
+        await addDoc(collection(db,"paymentRequests"), {
+          churchId: myChurchId,
+          churchName: (myChurchData && myChurchData.name) || "",
+          amountDue,
+          memberCountAtRequest,
+          reference,
+          status: "pending",
+          requestedBy: auth.currentUser.uid,
+          requestedByName: document.getElementById("navName").textContent,
+          requestedAt: new Date().toISOString(),
+        });
+        sendEmailAlert(
+          "New payment request",
+          `${(myChurchData && myChurchData.name) || "A church"} says they paid ${formatNaira(amountDue)}.\n\nReference: ${reference || "(none given)"}\n\nConfirm it in the Platform Dashboard's Payment Requests panel once you've verified the money landed.`
+        );
+        showToast("Thanks — we'll confirm this and extend your subscription shortly.","success",icon("check"));
+        loadSubscriptionTab();
+      } catch (err) {
+        showToast(`Couldn't submit that: ${err.message}`,"error",icon("alert"));
+        btn.disabled = false;
+      }
+    };
+
     window.loadDepartmentsTab = async () => {
       await loadDepartments();
       const el = document.getElementById("departmentsList");
@@ -823,9 +1033,15 @@
         const churchSnap = await getDoc(doc(db,"churches",myChurchId));
         if (churchSnap.exists() && churchSnap.data().active === false) {
           await signOut(auth);
-          window.location.href = "../index.html";
+          window.location.href = "../index.html?locked=paused";
           return;
         }
+        if (churchSnap.exists() && getSubscriptionState(churchSnap.data().subscriptionExpiresAt).state === "expired") {
+          await signOut(auth);
+          window.location.href = "../index.html?locked=expired";
+          return;
+        }
+        myChurchData = churchSnap.exists() ? churchSnap.data() : null;
       } catch (err) {
         showToast(`Couldn't load your profile: ${err.message}. Pull down to reload.`, "error", icon("alert"));
         staggerIn(document.querySelectorAll("#tab-overview .reveal"), 70);
@@ -864,6 +1080,7 @@
 
       populateMeetingScopeSelect();
       populateAnnounceScopeSelect();
+      updateSubscriptionBanner();
       await loadOverview();
     });
 

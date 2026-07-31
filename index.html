@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
   <title>ChurchTrack — Member Portal</title>
-  <meta name="theme-color" content="#0A1628"/>
+  <meta name="theme-color" content="#1A1035"/>
   <meta name="description" content="Attendance, directory, points, streaks and daily devotionals for your church."/>
 
   <link rel="icon" href="favicon.ico" sizes="any"/>
@@ -14,7 +14,7 @@
   <link rel="manifest" href="manifest.webmanifest"/>
 
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
   <link rel="stylesheet" href="css/style.css"/>
 </head>
 <body class="auth-page">
@@ -144,6 +144,8 @@
       from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
     import { doc, setDoc, getDoc, getDocs, collection, query, where }
       from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+    import { getSubscriptionState } from "./js/pricing-config.js";
+    import { sendUserEmail } from "./js/emailjs-config.js";
     import { icon } from "./js/icons.js";
 
     // "admin" is the old, pre-department role name — treated the same as
@@ -153,6 +155,31 @@
     let churches = [];          // {id, name, active} for every active church, loaded once
     let selectedChurchId = null;
     let selectedChurchName = null;
+
+    // If member.html or admin.html just redirected here because the church
+    // is paused or its subscription lapsed, show that reason up front.
+    (function showLockedReasonIfAny() {
+      const reason = new URLSearchParams(window.location.search).get("locked");
+      if (!reason) return;
+      const el = document.getElementById("loginError");
+      el.textContent = reason === "expired"
+        ? "This church's subscription has expired. Contact your church administrator to renew."
+        : "This church's account is currently paused. Contact your church administrator.";
+      el.classList.remove("hidden");
+    })();
+
+    // A shared link like yourapp.com/champions-cathedral (or, for links sent
+    // out before pretty URLs, yourapp.com/index.html?c=champions-cathedral)
+    // skips the picker and goes straight to that church's sign-in/registration.
+    // The pretty path only works if the host actually rewrites unmatched
+    // paths to index.html — see vercel.json / netlify _redirects and the
+    // README's "PRETTY SIGN-UP LINKS" section. If that rewrite isn't set up,
+    // the ?c= form still works everywhere, so nothing is ever fully broken.
+    function getSlugFromURL() {
+      const path = window.location.pathname.replace(/^\/+|\/+$/g, "");
+      if (path && path !== "index.html" && !path.includes("/")) return decodeURIComponent(path);
+      return new URLSearchParams(window.location.search).get("c");
+    }
 
     async function loadChurches() {
       const sel = document.getElementById("gateChurchSelect");
@@ -170,9 +197,7 @@
         console.warn("Couldn't load churches:", err);
       }
 
-      // A shared link like index.html?c=champions-cathedral skips the picker
-      // and goes straight to that church's sign-in/registration.
-      const slug = new URLSearchParams(window.location.search).get("c");
+      const slug = getSlugFromURL();
       if (slug) {
         const match = churches.find((c) => c.id === slug);
         if (match) { sel.value = match.id; confirmChurch(); return; }
@@ -235,6 +260,12 @@
             if (churchSnap.exists() && churchSnap.data().active === false) {
               await signOut(auth);
               document.getElementById("loginError").textContent = "This church's account is currently paused. Contact your church administrator.";
+              document.getElementById("loginError").classList.remove("hidden");
+              return;
+            }
+            if (churchSnap.exists() && getSubscriptionState(churchSnap.data().subscriptionExpiresAt).state === "expired") {
+              await signOut(auth);
+              document.getElementById("loginError").textContent = "This church's subscription has expired. Contact your church administrator to renew.";
               document.getElementById("loginError").classList.remove("hidden");
               return;
             }
@@ -329,6 +360,11 @@
         });
         succEl.textContent = "Account created! Signing you in...";
         succEl.classList.remove("hidden");
+        sendUserEmail(
+          email, name,
+          `Welcome to ${selectedChurchName}`,
+          `Hi ${name},\n\nYour account at ${selectedChurchName} has been created. You're registered as ${isWorker ? `a worker in ${departmentName}` : "a member of the General Congregation"}.\n\nYou can sign in any time at this link:\n${window.location.origin + window.location.pathname}\n\nSee you soon!`
+        );
       } catch(e) {
         document.querySelector("#registerForm .btn-primary").innerHTML = '<span>Create Account</span><span class="btn-icon">→</span>';
         document.querySelector("#registerForm .btn-primary").disabled = false;
